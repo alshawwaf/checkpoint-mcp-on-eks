@@ -238,6 +238,9 @@ class StackConfig:
         base = f"@chkp/{server}-mcp"
         return f"{base}@{version}" if version else base
 
+    def servers_version(self, server):
+        return SERVER_CATALOG[server]["version"]
+
     def image_tag(self, server):
         """Immutable per-server tag in the shared mcp-server ECR repo."""
         return f"{server}-{SERVER_CATALOG[server]['version']}"

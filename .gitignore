@@ -27,8 +27,8 @@ __pycache__/
 venv/
 .pytest_cache/
 .ruff_cache/
-dist/
-build/
+/dist/
+/build/
 
 # Spike / scratch
 spike/bin/

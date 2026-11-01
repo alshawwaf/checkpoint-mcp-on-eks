@@ -1,0 +1,16 @@
+version: 0.2
+# AWS CodeBuild (arm64) entry point used by `chkpmcpeks build`. The CLI uploads
+# the repo's images/ and services/agent/ as the source zip and passes
+# SERVER_BUILDS / AGENT_TAG as environment overrides; REGISTRY, SERVER_REPO and
+# AGENT_REPO are set on the project by Terraform (terraform/build).
+env:
+  shell: bash
+  variables:
+    DOCKER_BUILDKIT: "1"
+phases:
+  pre_build:
+    commands:
+      - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
+  build:
+    commands:
+      - bash images/build.sh
