@@ -247,3 +247,18 @@ class StackConfig:
 
     def target_name(self, server):
         return target_name(server, self.prefix)
+
+# Every request header name an @chkp package reads credentials/settings from
+# (extracted from CheckPointSW/mcp-servers `getHeaderValue(...)` calls). Used as
+# a defense-in-depth DENY list; the primary control is the gateway's header
+# ALLOW list (only MCP protocol headers reach a backend). Refresh this list when
+# bumping package versions: see docs/runbooks/upgrade.md.
+CHKP_CREDENTIAL_HEADERS = (
+    "api-key", "argos-api-key", "argos-customer-id", "argos-host", "argos-integration-token",
+    "argos-server-url", "auth-url", "client-id", "cloud-connected", "cloud-infra-token",
+    "cp-ci-access-key", "cp-ci-client-id", "cp-ci-gateway", "dev-port", "doc-source",
+    "doc-tool-client-id", "doc-tool-region", "doc-tool-secret-key", "gateway-url",
+    "infinity-portal-url", "management-domain", "management-host", "management-port", "origin",
+    "password", "region", "s1c-url", "secret-key", "username", "verbose", "waf-access-key",
+    "waf-allow-writes", "waf-client-id", "waf-region", "x-chkp-sid",
+)

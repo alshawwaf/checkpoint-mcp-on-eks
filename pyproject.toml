@@ -33,3 +33,11 @@ ignore = ["S101", "S603", "S607", "S310", "E501"]
 [tool.pytest.ini_options]
 testpaths = ["tests", "services/agent/tests"]
 pythonpath = [".", "services/agent"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["chkpmcpeks", "chkp_agent"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S105", "S106", "S107"]
+"services/*/tests/**" = ["S105", "S106", "S107"]
+"spike/**" = ["S105", "S106", "S107", "B007", "SIM115"]

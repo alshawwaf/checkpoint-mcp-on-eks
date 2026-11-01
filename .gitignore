@@ -34,3 +34,4 @@ build/
 spike/bin/
 spike/*.log
 .DS_Store
+spike/out/
