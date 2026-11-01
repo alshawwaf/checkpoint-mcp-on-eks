@@ -1,0 +1,102 @@
+{{- /* agentgateway configuration, rendered from values (servers, auth, tool policy). */ -}}
+{{- $g := .Values.agentgateway }}
+{{- $a := .Values.auth }}
+{{- $tp := .Values.toolPolicy }}
+{{- $issuer := required "auth.issuer is required (Cognito issuer URL)" $a.issuer }}
+{{- $clients := list }}
+{{- range $a.allowedClientIds }}{{ $clients = append $clients (printf "%q" .) }}{{ end }}
+{{- $mutating := list }}
+{{- range $tp.mutatingPatterns }}{{ $mutating = append $mutating (printf "mcp.tool.name.contains(%q)" .) }}{{ end }}
+{{- $fwd := list }}
+{{- range $g.forwardHeaders }}{{ $fwd = append $fwd (printf "%q: (%q in request.headers) ? request.headers[%q] : []" . . .) }}{{ end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agentgateway-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "chkp.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+data:
+  config.yaml: |
+    # Rendered by the checkpoint-mcp Helm chart -- edit values.yaml, not this.
+    config:
+      adminAddr: 127.0.0.1:15000
+      statsAddr: 0.0.0.0:{{ $g.metricsPort }}
+      readinessAddr: 0.0.0.0:{{ $g.readinessPort }}
+      logging:
+        format: {{ $g.logFormat }}
+      {{- with $g.tracing.otlpEndpoint }}
+      tracing:
+        otlpEndpoint: {{ . }}
+      {{- end }}
+    binds:
+    - port: {{ $g.port }}
+      listeners:
+      - routes:
+        - name: mcp
+          matches:
+          - path:
+              pathPrefix: /mcp
+          - path:
+              pathPrefix: /.well-known/oauth-protected-resource
+          policies:
+            # 1. Never forward client-supplied headers to the servers: rebuild the
+            #    header map from the MCP protocol allow-list ...
+            transformations:
+              request:
+                replace: |
+                  { {{- join ", " $fwd -}} }
+            # ... and strip every known @chkp credential header regardless.
+            requestHeaderModifier:
+              remove: {{ toJson $g.denyHeaders }}
+            # 2. A valid access token from the configured issuer is required.
+            mcpAuthentication:
+              mode: strict
+              issuer: {{ $issuer }}
+              {{- with $a.audience }}
+              audiences: [{{ . | quote }}]
+              {{- end }}
+              jwks:
+                url: {{ $a.jwksUrl | default (printf "%s/.well-known/jwks.json" $issuer) }}
+              resourceMetadata:
+                resource: {{ $a.resourceUrl | default "https://localhost/mcp" }}
+                scopesSupported: [{{ $a.requiredScope | quote }}]
+                bearerMethodsSupported: [header]
+            # 3. Authorization: token type, client allow-list, scope, tool policy.
+            mcpAuthorization:
+              rules:
+              - require: 'has(jwt.token_use) ? jwt.token_use == "access" : true'
+              {{- if $clients }}
+              - require: 'jwt.client_id in [{{ join ", " $clients }}]'
+              {{- end }}
+              {{- with $a.requiredScope }}
+              - require: '(" " + jwt.scope + " ").contains(" {{ . }} ")'
+              {{- end }}
+              {{- range $tp.denyTools }}
+              - deny: 'mcp.tool.name == {{ . | quote }}'
+              {{- end }}
+              {{- if $tp.readOnly }}
+              - allow: '!({{ join " || " $mutating }})'
+              {{- range $tp.allowTools }}
+              - allow: 'mcp.tool.name == {{ . | quote }}'
+              {{- end }}
+              {{- else }}
+              - allow: 'true'
+              {{- end }}
+          backends:
+          - mcp:
+              prefixMode: {{ $g.prefixMode }}
+              statefulMode: {{ $g.statefulMode }}
+              failureMode: {{ $g.failureMode }}
+              {{- with $g.sseKeepAlive }}
+              sseKeepAlive: {{ . }}
+              {{- end }}
+              targets:
+              {{- range $server, $s := .Values.servers }}
+              {{- if $s.enabled }}
+              - name: {{ include "chkp.target" $server }}
+                mcp:
+                  host: http://{{ include "chkp.target" $server }}.{{ $.Release.Namespace }}.svc.cluster.local:{{ $.Values.serverDefaults.port }}/mcp
+              {{- end }}
+              {{- end }}

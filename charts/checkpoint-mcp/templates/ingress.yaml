@@ -1,0 +1,77 @@
+{{- if .Values.ingress.enabled }}
+{{- $i := .Values.ingress }}
+{{- /*
+EKS Auto Mode's built-in load balancer controller (eks.amazonaws.com/alb).
+Load-balancer-wide settings live in IngressClassParams (annotations on the
+IngressClass are not supported in Auto Mode).
+*/ -}}
+apiVersion: eks.amazonaws.com/v1
+kind: IngressClassParams
+metadata:
+  name: {{ $i.className }}
+  labels:
+    {{- include "chkp.labels" . | nindent 4 }}
+spec:
+  scheme: {{ $i.scheme }}
+  targetType: ip
+  {{- with $i.certificateArn }}
+  certificateARNs: [{{ . | quote }}]
+  {{- end }}
+  sslPolicy: {{ $i.sslPolicy }}
+  inboundCIDRs: {{ toJson $i.inboundCidrs }}
+  loadBalancerAttributes:
+    - key: idle_timeout.timeout_seconds
+      value: {{ $i.idleTimeoutSeconds | quote }}
+    - key: routing.http.drop_invalid_header_fields.enabled
+      value: "true"
+  tags:
+    - key: project
+      value: chkp-mcp-eks
+---
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: {{ $i.className }}
+  labels:
+    {{- include "chkp.labels" . | nindent 4 }}
+spec:
+  controller: eks.amazonaws.com/alb
+  parameters:
+    apiGroup: eks.amazonaws.com
+    kind: IngressClassParams
+    name: {{ $i.className }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: checkpoint-mcp
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "chkp.labels" . | nindent 4 }}
+  annotations:
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/success-codes: "200"
+spec:
+  ingressClassName: {{ $i.className }}
+  rules:
+    - {{- with $i.host }}
+      host: {{ . }}
+      {{- end }}
+      http:
+        paths:
+          - path: /mcp
+            pathType: Prefix
+            backend: {service: {name: agentgateway, port: {name: http}}}
+          - path: /.well-known/oauth-protected-resource
+            pathType: Prefix
+            backend: {service: {name: agentgateway, port: {name: http}}}
+          {{- if .Values.agent.enabled }}
+          - path: /v1
+            pathType: Prefix
+            backend: {service: {name: chkp-agent, port: {name: http}}}
+          - path: /healthz
+            pathType: Exact
+            backend: {service: {name: chkp-agent, port: {name: http}}}
+          {{- end }}
+{{- end }}

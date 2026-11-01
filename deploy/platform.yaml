@@ -1,0 +1,62 @@
+# Cluster-level objects applied by `chkpmcpeks deploy` BEFORE the add-ons and
+# the workload chart (so the add-on pods have somewhere to run).
+#
+# 1. The workload namespace, enforcing the Kubernetes "restricted" Pod Security
+#    Standard -- every pod must run non-root with no privilege escalation.
+# 2. A Graviton (arm64) NodePool for EKS Auto Mode. The built-in
+#    general-purpose pool is amd64-only; this pool uses the built-in `default`
+#    NodeClass and lets Karpenter pick the cheapest suitable c/m/r 7g+ instance.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: chkp-mcp
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
+    # Register ALB targets only once pods are actually ready (Auto Mode).
+    eks.amazonaws.com/pod-readiness-gate-inject: enabled
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: graviton
+  labels:
+    app.kubernetes.io/part-of: checkpoint-mcp
+spec:
+  template:
+    metadata:
+      labels:
+        chkp.checkpoint.com/pool: graviton
+    spec:
+      nodeClassRef:
+        group: eks.amazonaws.com
+        kind: NodeClass
+        name: default
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["arm64"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+        - key: eks.amazonaws.com/instance-category
+          operator: In
+          values: ["c", "m", "r"]
+        - key: eks.amazonaws.com/instance-generation
+          operator: Gt
+          values: ["6"]
+        - key: eks.amazonaws.com/instance-size
+          operator: In
+          values: ["medium", "large", "xlarge"]
+      expireAfter: 336h
+  # Cost guard-rail: the whole pool can never exceed this much capacity.
+  limits:
+    cpu: "16"
+    memory: 64Gi
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 2m
+    budgets:
+      - nodes: "1"

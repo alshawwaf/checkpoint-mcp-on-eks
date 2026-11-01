@@ -1,0 +1,14 @@
+# Values used by `helm lint` / kubeconform in CI (no cluster needed).
+images:
+  registry: 123456789012.dkr.ecr.us-east-1.amazonaws.com
+  servers:
+    reputation-service: {tag: reputation-service-1.3.1, digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+  agent: {tag: agent-abc, digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
+auth:
+  issuer: https://cognito-idp.us-east-1.amazonaws.com/us-east-1_EXAMPLE
+  allowedClientIds: [clientaaaa, clientbbbb]
+  resourceUrl: https://example.us-east-1.elb.amazonaws.com/mcp
+agent:
+  gatewayTokenUrl: https://chkp-mcp-eks-123456789012.auth.us-east-1.amazoncognito.com/oauth2/token
+ingress:
+  certificateArn: arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000

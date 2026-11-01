@@ -1,0 +1,183 @@
+{{- if .Values.agent.enabled }}
+{{- $ag := .Values.agent }}
+{{- $issuer := required "auth.issuer is required" .Values.auth.issuer }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  # Bound to the Bedrock-invoke IAM role by an EKS Pod Identity association
+  # (terraform/platform/identity.tf) -- no annotations, no IRSA.
+  name: {{ $ag.serviceAccountName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "chkp.labels" . | nindent 4 }}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: chkp-agent-gateway-client
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "chkp.labels" . | nindent 4 }}
+spec:
+  refreshInterval: {{ .Values.secrets.refreshInterval }}
+  secretStoreRef: {kind: SecretStore, name: {{ .Values.secrets.storeName }}}
+  target: {name: chkp-agent-gateway-client, creationPolicy: Owner}
+  dataFrom:
+    - extract: {key: {{ $ag.clientSecretName }}}
+{{- if ne $ag.llm.provider "bedrock" }}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: chkp-agent-llm
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "chkp.labels" . | nindent 4 }}
+spec:
+  refreshInterval: {{ .Values.secrets.refreshInterval }}
+  secretStoreRef: {kind: SecretStore, name: {{ .Values.secrets.storeName }}}
+  target: {name: chkp-agent-llm, creationPolicy: Owner}
+  dataFrom:
+    - extract: {key: {{ $ag.llmSecretName }}}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chkp-agent
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "chkp.labels" . | nindent 4 }}
+    app.kubernetes.io/name: chkp-agent
+    app.kubernetes.io/component: agent
+  {{- if .Values.reloader.enabled }}
+  annotations:
+    reloader.stakater.com/auto: "true"
+  {{- end }}
+spec:
+  {{- if not $ag.autoscaling.enabled }}
+  replicas: {{ $ag.replicas }}
+  {{- end }}
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: chkp-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: chkp-agent
+        app.kubernetes.io/component: agent
+    spec:
+      serviceAccountName: {{ $ag.serviceAccountName }}
+      # The Pod Identity agent injects credentials through the projected token,
+      # which needs the service account token mounted.
+      automountServiceAccountToken: true
+      enableServiceLinks: false
+      securityContext:
+        {{- include "chkp.podSecurity" . | nindent 8 }}
+        runAsUser: 10001
+        runAsGroup: 10001
+      {{- include "chkp.scheduling" . | nindent 6 }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: chkp-agent
+      containers:
+        - name: agent
+          image: {{ include "chkp.image" (dict "registry" .Values.images.registry "repository" .Values.images.agentRepository "digest" .Values.images.agent.digest "tag" .Values.images.agent.tag) }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          ports:
+            - {name: http, containerPort: {{ $ag.port }}}
+          env:
+            - {name: PORT, value: {{ $ag.port | quote }}}
+            - {name: AWS_REGION, value: {{ .Values.region | quote }}}
+            - {name: GATEWAY_URL, value: "http://agentgateway.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.agentgateway.port }}/mcp"}
+            - {name: TOOL_SEPARATOR, value: "_"}
+            - {name: GATEWAY_TOKEN_URL, value: {{ required "agent.gatewayTokenUrl is required" $ag.gatewayTokenUrl | quote }}}
+            - {name: GATEWAY_TOKEN_SCOPE, value: {{ .Values.auth.requiredScope | quote }}}
+            - {name: AUTH_ISSUER, value: {{ $issuer | quote }}}
+            - {name: AUTH_JWKS_URL, value: {{ .Values.auth.jwksUrl | quote }}}
+            - {name: AUTH_AUDIENCE, value: {{ .Values.auth.audience | quote }}}
+            - {name: AUTH_ALLOWED_CLIENT_IDS, value: {{ join "," .Values.auth.allowedClientIds | quote }}}
+            - {name: AUTH_REQUIRED_SCOPE, value: {{ .Values.auth.requiredScope | quote }}}
+            - {name: LLM_PROVIDER, value: {{ $ag.llm.provider | quote }}}
+            - {name: LLM_MODEL, value: {{ $ag.llm.model | quote }}}
+            - {name: AZURE_OPENAI_ENDPOINT, value: {{ $ag.llm.azureEndpoint | quote }}}
+            - {name: AZURE_OPENAI_API_VERSION, value: {{ $ag.llm.azureApiVersion | quote }}}
+            - {name: OPENAI_BASE_URL, value: {{ $ag.llm.openaiBaseUrl | quote }}}
+            - {name: MAX_TURNS, value: {{ $ag.maxTurns | quote }}}
+            - {name: MAX_TOKENS, value: {{ $ag.maxTokens | quote }}}
+            - {name: LOG_LEVEL, value: {{ $ag.logLevel | quote }}}
+          envFrom:
+            - secretRef: {name: chkp-agent-gateway-client}
+            {{- if ne $ag.llm.provider "bedrock" }}
+            - secretRef: {name: chkp-agent-llm}
+            {{- end }}
+          startupProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 20
+          resources:
+            {{- toYaml $ag.resources | nindent 12 }}
+          securityContext:
+            {{- include "chkp.containerSecurity" . | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chkp-agent
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "chkp.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+  annotations:
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: chkp-agent
+  ports:
+    - {name: http, port: {{ $ag.port }}, targetPort: http}
+{{- if $ag.autoscaling.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: chkp-agent
+  namespace: {{ .Release.Namespace }}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: chkp-agent}
+  minReplicas: {{ $ag.autoscaling.minReplicas }}
+  maxReplicas: {{ $ag.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: {{ $ag.autoscaling.targetCPUUtilizationPercentage }}}
+{{- end }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: chkp-agent
+  namespace: {{ .Release.Namespace }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: chkp-agent
+{{- end }}

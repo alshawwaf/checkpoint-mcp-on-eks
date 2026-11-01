@@ -1,0 +1,18 @@
+apiVersion: v2
+name: checkpoint-mcp
+description: >-
+  Check Point MCP servers behind one authenticated MCP gateway (agentgateway),
+  plus a security-operations agent -- the EKS reference architecture.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.30.0-0"
+home: https://github.com/alshawwaf/checkpoint-mcp-on-eks
+sources:
+  - https://github.com/alshawwaf/checkpoint-mcp-on-eks
+  - https://github.com/CheckPointSW/mcp-servers
+  - https://github.com/agentgateway/agentgateway
+keywords: [mcp, checkpoint, security, agent, eks]
+maintainers:
+  - name: checkpoint-mcp-on-eks maintainers
+    url: https://github.com/alshawwaf/checkpoint-mcp-on-eks

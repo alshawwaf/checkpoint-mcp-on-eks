@@ -1,0 +1,167 @@
+{{- /*
+One Deployment + Service (+ ExternalSecret, PDB) per enabled Check Point MCP
+server. Every server runs the same hardened pod shape; only the image, the
+credentials secret and the startup flags differ.
+*/ -}}
+{{- $root := . }}
+{{- $d := .Values.serverDefaults }}
+{{- range $server, $s := .Values.servers }}
+{{- if $s.enabled }}
+{{- $name := include "chkp.serverName" $server }}
+{{- $img := index $root.Values.images.servers $server | default dict }}
+{{- $secret := printf "%s-creds" $name }}
+{{- if $s.creds }}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: {{ $name }}
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "chkp.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: mcp-server
+    chkp.checkpoint.com/server: {{ $server }}
+spec:
+  refreshInterval: {{ $root.Values.secrets.refreshInterval }}
+  secretStoreRef:
+    kind: SecretStore
+    name: {{ $root.Values.secrets.storeName }}
+  target:
+    name: {{ $secret }}
+    creationPolicy: Owner
+  # Every JSON field of the secret becomes one environment variable.
+  dataFrom:
+    - extract:
+        key: {{ printf "%s%s" $root.Values.secrets.prefix $server }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "chkp.labels" $root | nindent 4 }}
+    app.kubernetes.io/name: {{ $name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/version: {{ $s.version | quote }}
+    chkp.checkpoint.com/server: {{ $server }}
+  {{- if and $root.Values.reloader.enabled $s.creds }}
+  annotations:
+    # Restart when the synced credentials change (Stakater Reloader).
+    secret.reloader.stakater.com/reload: {{ $secret }}
+  {{- end }}
+spec:
+  replicas: {{ $s.replicas | default $d.replicas }}
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $name }}
+        app.kubernetes.io/component: mcp-server
+        chkp.checkpoint.com/server: {{ $server }}
+    spec:
+      serviceAccountName: chkp-mcp-server
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        {{- include "chkp.podSecurity" $root | nindent 8 }}
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      {{- include "chkp.scheduling" $root | nindent 6 }}
+      containers:
+        - name: server
+          image: {{ include "chkp.image" (dict "registry" $root.Values.images.registry "repository" $root.Values.images.serverRepository "digest" $img.digest "tag" (printf "%s-%s" $server $s.version)) }}
+          imagePullPolicy: {{ $root.Values.images.pullPolicy }}
+          ports:
+            - name: mcp
+              containerPort: {{ $d.port }}
+          env:
+            - name: TELEMETRY_DISABLED
+              value: "true"
+            {{- with $s.args }}
+            - name: CHKP_ARGS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with $d.proxy.httpsProxy }}
+            - name: HTTPS_PROXY
+              value: {{ . | quote }}
+            - name: NO_PROXY
+              value: {{ $d.proxy.noProxy | quote }}
+            {{- end }}
+            {{- with $d.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- if $s.creds }}
+          envFrom:
+            - secretRef:
+                name: {{ $secret }}
+          {{- end }}
+          startupProbe:
+            httpGet: {path: /health, port: mcp}
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet: {path: /health, port: mcp}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /health, port: mcp}
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            {{- toYaml ($s.resources | default $d.resources) | nindent 12 }}
+          securityContext:
+            {{- include "chkp.containerSecurity" $root | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  # Named after the agentgateway target (no hyphens) so the gateway config
+  # reads naturally: http://<target>:8000/mcp
+  name: {{ include "chkp.target" $server }}
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "chkp.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: mcp-server
+    chkp.checkpoint.com/server: {{ $server }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: {{ $name }}
+  ports:
+    - name: mcp
+      port: {{ $d.port }}
+      targetPort: mcp
+{{- if ge (int ($s.replicas | default $d.replicas)) 2 }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $name }}
+  namespace: {{ $root.Release.Namespace }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+{{- end }}
+{{- end }}
+{{- end }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: chkp-mcp-server
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "chkp.labels" . | nindent 4 }}
+automountServiceAccountToken: false
