@@ -120,9 +120,20 @@ def _deploy(cfg, session, args, profile, rep):
 
     rep.begin("Platform (Terraform)")
     log("  VPC, EKS Auto Mode, Cognito, Pod Identity roles, ACM -- first run takes ~15-20 min")
-    terraform.apply("platform", cfg, profile)
+    if args.domain is not None:
+        terraform.save_stack_settings(cfg.prefix, domain_name="" if args.domain == "none" else args.domain)
+    domain = terraform.stack_settings(cfg.prefix).get("domain_name", "")
+    if domain:
+        log(f"  public name: {domain} (DNS-validated ACM certificate)")
+    # The CloudWatch add-on's controller needs a general-purpose node, which only
+    # exists once the Graviton NodePool is applied (below). Hold it back until then.
+    pool_ready = _nodepool_exists(cfg, session, profile)
+    terraform.apply("platform", cfg, profile,
+                    extra_vars=None if pool_ready else {"install_cloudwatch_addon": "false"})
     st = Stack(cfg, session, profile)
     out = st.out
+    if out.get("domain_name") and not out.get("route53_zone_id"):
+        _wait_certificate(session, cfg.region, out)
 
     rep.begin("Cluster access")
     path = write_kubeconfig(session, cfg.region, out["cluster_name"], profile=profile)
@@ -133,6 +144,9 @@ def _deploy(cfg, session, args, profile, rep):
 
     rep.begin("Namespace + Graviton NodePool")
     kube.apply_file(PLATFORM_MANIFEST)
+    if not pool_ready:
+        log("  NodePool in place -- adding the CloudWatch Observability add-on")
+        terraform.apply("platform", cfg, profile)
 
     rep.begin("Add-ons (External Secrets, Reloader)")
     kube.install_addon("external-secrets")
@@ -151,14 +165,17 @@ def _deploy(cfg, session, args, profile, rep):
     helm_deploy(kube, cfg)
 
     rep.begin("Load balancer")
-    host = ""
+    alb = ""
     for _ in range(60):
-        host = out.get("domain_name") or kube.ingress_hostname(cfg.namespace)
-        if host:
+        alb = kube.ingress_hostname(cfg.namespace)
+        if alb:
             break
         time.sleep(10)
-    if not host:
+    if not alb:
         raise RuntimeError("the ALB was not provisioned within 10 minutes (kubectl describe ingress -n chkp-mcp)")
+    host = out.get("domain_name") or alb
+    if out.get("domain_name") and not out.get("route53_zone_id"):
+        _wait_dns(host, alb)
     base = f"https://{host}"
     log(f"  {base}")
     # Advertise the real public URL in the gateway's OAuth resource metadata.
@@ -181,6 +198,72 @@ def _deploy(cfg, session, args, profile, rep):
         "  Tear down    : python -m chkpmcpeks destroy",
     ] + lines
     return (0 if ok else 1), summary
+
+
+def _wait_certificate(session, region, out, minutes=45):
+    """External DNS: show the ACM validation record(s) and wait until ISSUED."""
+    acm = session.client("acm", region_name=region)
+    arn = out["certificate_arn"]
+    status = acm.describe_certificate(CertificateArn=arn)["Certificate"]["Status"]
+    if status == "ISSUED":
+        log(f"  certificate for {out['domain_name']} is ISSUED")
+        return
+    log("")
+    log(f"  ACTION: prove ownership of {out['domain_name']} -- create at your DNS provider:")
+    for r in out.get("certificate_validation_records") or []:
+        log(f"    {r['type']:6} {r['name']}  ->  {r['value']}   (DNS only / not proxied)")
+    log("  ACM reuses this record for the same name, so it is a one-time step. Waiting...")
+    for i in range(minutes * 3):
+        status = acm.describe_certificate(CertificateArn=arn)["Certificate"]["Status"]
+        if status == "ISSUED":
+            log("  certificate ISSUED")
+            return
+        if status in ("FAILED", "VALIDATION_TIMED_OUT", "REVOKED"):
+            raise RuntimeError(f"ACM certificate {status}")
+        if i and i % 9 == 0:
+            log(f"    still {status} -- waiting for the validation record to propagate")
+        time.sleep(20)
+    raise RuntimeError(f"certificate not issued within {minutes} min -- create the record above and re-run deploy")
+
+
+def _resolve(name):
+    import socket
+
+    try:
+        return {ai[4][0] for ai in socket.getaddrinfo(name, 443, proto=socket.IPPROTO_TCP)}
+    except OSError:
+        return set()
+
+
+def _wait_dns(domain, alb, minutes=30):
+    """External DNS: wait until the public name resolves to the ALB."""
+    if _resolve(domain) & _resolve(alb):
+        log(f"  {domain} already points at the ALB")
+        return
+    log("")
+    log(f"  ACTION: point {domain} at the load balancer -- create at your DNS provider:")
+    log(f"    CNAME  {domain}  ->  {alb}   (DNS only / not proxied)")
+    log("  The ALB name changes on every fresh deploy; update this record after a destroy + deploy. Waiting...")
+    for i in range(minutes * 3):
+        if _resolve(domain) & _resolve(alb):
+            log(f"  {domain} resolves to the ALB")
+            return
+        if i and i % 9 == 0:
+            log("    still waiting for DNS")
+        time.sleep(20)
+    raise RuntimeError(f"{domain} does not resolve to {alb} -- create the CNAME and re-run deploy")
+
+
+def _nodepool_exists(cfg, session, profile):
+    """True when the cluster already has the Graviton NodePool (re-runs)."""
+    st = Stack(cfg, session, profile)
+    if not st.deployed:
+        return False
+    try:
+        write_kubeconfig(session, cfg.region, st.out["cluster_name"], profile=profile)
+        return bool(st.kube.get_json("nodepool", "graviton").get("metadata"))
+    except Exception:  # noqa: BLE001 -- unknown means "not ready": the safe ordering
+        return False
 
 
 class _SubReporter:

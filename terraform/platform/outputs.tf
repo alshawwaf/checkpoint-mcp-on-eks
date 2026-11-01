@@ -80,3 +80,18 @@ output "llm_secret_name" {
 output "secret_name_prefix" {
   value = var.secret_name_prefix
 }
+
+output "certificate_validation_records" {
+  description = "DNS records that prove domain ownership to ACM (create them at your DNS provider when Route 53 is not used)."
+  value = local.use_domain ? [
+    for o in aws_acm_certificate.domain[0].domain_validation_options : {
+      name  = o.resource_record_name
+      type  = o.resource_record_type
+      value = o.resource_record_value
+    }
+  ] : []
+}
+
+output "route53_zone_id" {
+  value = var.route53_zone_id
+}

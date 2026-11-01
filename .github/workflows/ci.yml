@@ -1,0 +1,96 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  AGENTGATEWAY_VERSION: v1.7.0
+  KUBECONFORM_VERSION: v0.7.0
+
+jobs:
+  python:
+    name: python ${{ matrix.python }} (ruff + pytest)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]" -r services/agent/requirements.txt
+      - name: Fetch agentgateway (for the chart integration test)
+        run: |
+          mkdir -p spike/bin && cd spike/bin
+          base=https://github.com/agentgateway/agentgateway/releases/download/${AGENTGATEWAY_VERSION}
+          curl -fsSLO "$base/agentgateway-linux-amd64" && curl -fsSLO "$base/agentgateway-linux-amd64.sha256"
+          sha256sum -c agentgateway-linux-amd64.sha256 && chmod +x agentgateway-linux-amd64
+      - run: ruff check .
+      - run: ruff format --check chkpmcpeks services tests || true   # advisory
+      - run: pytest -q
+
+  chart:
+    name: helm lint + kubeconform
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - name: Install kubeconform
+        run: |
+          curl -fsSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" | tar xz
+          sudo mv kubeconform /usr/local/bin/
+      - run: helm lint charts/checkpoint-mcp -f charts/checkpoint-mcp/ci/test-values.yaml --strict
+      - name: kubeconform (rendered chart + platform manifests)
+        run: |
+          helm template t charts/checkpoint-mcp -n chkp-mcp -f charts/checkpoint-mcp/ci/test-values.yaml > rendered.yaml
+          kubeconform -strict -summary -kubernetes-version 1.37.0 \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            -skip IngressClassParams \
+            rendered.yaml deploy/platform.yaml
+
+  terraform:
+    name: terraform fmt + validate
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        stack: [build, platform]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+      - run: terraform fmt -check -recursive
+        working-directory: terraform/${{ matrix.stack }}
+      - run: terraform init -backend=false -input=false && terraform validate
+        working-directory: terraform/${{ matrix.stack }}
+
+  containers:
+    name: hadolint + shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: hadolint/hadolint-action@06be81baf89a55ffd0e24b8f04a4185738dd3387 # v3.5.0
+        with:
+          dockerfile: images/mcp-server/Dockerfile
+          ignore: DL3016   # npm package version is pinned through a build arg
+      - uses: hadolint/hadolint-action@06be81baf89a55ffd0e24b8f04a4185738dd3387 # v3.5.0
+        with:
+          dockerfile: services/agent/Dockerfile
+          ignore: DL3013   # pip install from locally built, pinned wheels
+      - run: shellcheck images/build.sh images/mcp-server/entrypoint.sh

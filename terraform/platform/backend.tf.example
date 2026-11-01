@@ -1,0 +1,11 @@
+# Copy to backend.tf to keep state in S3 (recommended for teams). Native S3
+# locking needs Terraform >= 1.10; no DynamoDB table required.
+terraform {
+  backend "s3" {
+    bucket       = "my-terraform-state-bucket"
+    key          = "checkpoint-mcp-on-eks/platform.tfstate"
+    region       = "us-east-1"
+    use_lockfile = true
+    encrypt      = true
+  }
+}

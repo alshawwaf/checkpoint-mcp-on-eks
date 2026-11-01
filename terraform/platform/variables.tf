@@ -86,3 +86,9 @@ variable "extra_tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "install_cloudwatch_addon" {
+  description = "Install the CloudWatch Observability add-on. The CLI sets false on a first deploy until the Graviton NodePool exists."
+  type        = bool
+  default     = true
+}

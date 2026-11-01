@@ -1,0 +1,80 @@
+{
+  "name": "Check Point · n8n AI Agent with Check Point MCP tools",
+  "nodes": [
+    {
+      "parameters": {"options": {}},
+      "id": "7a4d2e3f-0001-4b00-9000-000000000001",
+      "name": "When chat message received",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 300],
+      "webhookId": "chkp-n8n-agent"
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are a Check Point security-operations assistant. Answer by calling the Check Point MCP tools you have (names are <server>_<tool>, e.g. reputationservice_..., documentation_..., quantummanagement_...). Reputation of a URL, IP, domain or file hash -> reputationservice tools. How-to and best practice -> documentation tools. Never state a fact a tool did not return; if a tool fails, say so. Lead with the answer, cite the tool you used.",
+          "maxIterations": 8
+        }
+      },
+      "id": "7a4d2e3f-0002-4b00-9000-000000000002",
+      "name": "Security-ops AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [260, 300]
+    },
+    {
+      "parameters": {
+        "model": {"__rl": true, "mode": "list", "value": "gpt-4.1-mini"},
+        "options": {"temperature": 0.1}
+      },
+      "id": "7a4d2e3f-0003-4b00-9000-000000000003",
+      "name": "Chat model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [120, 540]
+    },
+    {
+      "parameters": {"contextWindowLength": 10},
+      "id": "7a4d2e3f-0004-4b00-9000-000000000004",
+      "name": "Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [300, 540]
+    },
+    {
+      "parameters": {
+        "endpointUrl": "https://<your-host>/mcp",
+        "serverTransport": "httpStreamable",
+        "authentication": "mcpOAuth2Api",
+        "include": "all"
+      },
+      "id": "7a4d2e3f-0005-4b00-9000-000000000005",
+      "name": "Check Point MCP gateway",
+      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
+      "typeVersion": 1.1,
+      "position": [480, 540]
+    },
+    {
+      "parameters": {
+        "content": "## n8n AI Agent × Check Point MCP gateway\nn8n's own AI Agent uses **every Check Point tool** the EKS gateway exposes, over MCP (streamable HTTP), as its toolset.\n\n**Setup (once)**\n1. **Chat model**: pick your OpenAI or Azure OpenAI credential (any tool-calling model).\n2. **Check Point MCP gateway**: endpoint = `<CHKP_MCP_URL>`; credential = *MCP OAuth2* with **Dynamic Client Registration off**, grant type **Client Credentials**, Access Token URL = `<CHKP_TOKEN_URL>`, Client ID + Secret from `chkpmcpeks endpoints --reveal-secret`, scope `chkp-mcp/invoke`. n8n fetches and refreshes the token itself.\n3. Chat: *What is the reputation of https://www.checkpoint.com?*\n\nThe gateway hides mutating tools (read-only policy) and never forwards credential headers.",
+        "height": 330,
+        "width": 560,
+        "color": 7
+      },
+      "id": "7a4d2e3f-0006-4b00-9000-000000000006",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-40, -80]
+    }
+  ],
+  "connections": {
+    "When chat message received": {"main": [[{"node": "Security-ops AI Agent", "type": "main", "index": 0}]]},
+    "Chat model": {"ai_languageModel": [[{"node": "Security-ops AI Agent", "type": "ai_languageModel", "index": 0}]]},
+    "Memory": {"ai_memory": [[{"node": "Security-ops AI Agent", "type": "ai_memory", "index": 0}]]},
+    "Check Point MCP gateway": {"ai_tool": [[{"node": "Security-ops AI Agent", "type": "ai_tool", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "pinData": {}
+}

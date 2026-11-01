@@ -1,0 +1,31 @@
+# Argo CD Application (multi-source): the chart from this repository at a pinned
+# revision, the environment values from YOUR GitOps repository.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: checkpoint-mcp
+  namespace: argocd
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: chkp-mcp
+  sources:
+    - repoURL: https://github.com/alshawwaf/checkpoint-mcp-on-eks.git
+      targetRevision: v0.1.0              # pin a tag or commit, never a branch, in production
+      path: charts/checkpoint-mcp
+      helm:
+        releaseName: checkpoint-mcp
+        valueFiles:
+          - $env/checkpoint-mcp/prod/values-images.yaml
+          - $env/checkpoint-mcp/prod/values-generated.yaml
+    - repoURL: https://github.com/your-org/gitops-environments.git
+      targetRevision: main
+      ref: env
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false             # deploy/platform.yaml creates it with Pod Security labels
+      - ServerSideApply=true

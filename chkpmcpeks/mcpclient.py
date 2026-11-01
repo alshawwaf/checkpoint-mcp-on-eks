@@ -43,6 +43,21 @@ def list_tools(url, token, ctx):
     return asyncio.run(_with_session(url, token, ctx, _all_tools))
 
 
+def list_specs(url, token, ctx):
+    """[(name, description, input_schema)] -- for callers that need arguments."""
+    from mcp import types
+
+    async def _specs(session):
+        out, cursor = [], None
+        while True:
+            res = await session.list_tools(params=types.PaginatedRequestParams(cursor=cursor) if cursor else None)
+            out += [(t.name, t.description or "", t.input_schema or {}) for t in res.tools]
+            cursor = res.next_cursor
+            if not cursor:
+                return out
+    return asyncio.run(_with_session(url, token, ctx, _specs))
+
+
 def call_tool(url, token, ctx, name, args=None, extra_headers=None):
     async def _call(session):
         res = await session.call_tool(name, args or {})

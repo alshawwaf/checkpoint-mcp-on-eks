@@ -72,24 +72,29 @@ module "eks" {
   # EKS envelope-encrypts Kubernetes Secrets with an AWS-owned KMS key by
   # default. A customer-managed key is a one-line opt-in (create_kms_key +
   # encryption_config) but costs money and lingers 7-30 days after destroy.
-  create_kms_key    = false
-  encryption_config = null
-  enabled_log_types                        = []    # control-plane logs cost money; opt in when needed
-  create_cloudwatch_log_group              = false
+  create_kms_key              = false
+  encryption_config           = null
+  enabled_log_types           = [] # control-plane logs cost money; opt in when needed
+  create_cloudwatch_log_group = false
 
-  addons = {
-    # HPA needs the resource metrics API, which Auto Mode does not ship.
-    metrics-server = {}
-    amazon-cloudwatch-observability = {
-      # Container Insights + Fluent Bit container logs. Application Signals is
-      # off: it is per-signal billed and the demo does not need it.
-      configuration_values = jsonencode({ applicationSignals = { enabled = false } })
-      pod_identity_association = [{
-        role_arn        = aws_iam_role.cloudwatch_agent.arn
-        service_account = "cloudwatch-agent"
-      }]
-    }
-  }
+  addons = merge(
+    # HPA needs the resource metrics API, which Auto Mode does not ship. It
+    # tolerates the built-in system pool, so it can install with the cluster.
+    { metrics-server = {} },
+    # Container Insights + Fluent Bit container logs. Its controller needs a
+    # general node, so on a first deploy the CLI applies this only after the
+    # Graviton NodePool exists (install_cloudwatch_addon=false, then true).
+    # Application Signals is off: per-signal billed, not needed here.
+    var.install_cloudwatch_addon ? {
+      amazon-cloudwatch-observability = {
+        configuration_values = jsonencode({ applicationSignals = { enabled = false } })
+        pod_identity_association = [{
+          role_arn        = aws_iam_role.cloudwatch_agent.arn
+          service_account = "cloudwatch-agent"
+        }]
+      }
+    } : {}
+  )
 }
 
 # ----------------------------------------------------------------------- Cognito

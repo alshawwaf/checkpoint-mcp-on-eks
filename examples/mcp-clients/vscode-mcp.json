@@ -1,0 +1,19 @@
+{
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "chkp-token",
+      "description": "Check Point MCP bearer token (python -m chkpmcpeks token)",
+      "password": true
+    }
+  ],
+  "servers": {
+    "checkpoint": {
+      "type": "http",
+      "url": "https://<your-host>/mcp",
+      "headers": {
+        "Authorization": "Bearer ${input:chkp-token}"
+      }
+    }
+  }
+}

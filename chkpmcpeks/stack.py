@@ -24,7 +24,7 @@ from .kube import Kube
 class Stack:
     def __init__(self, cfg, session, profile=None):
         self.cfg, self.session, self.profile = cfg, session, profile
-        self.out = terraform.outputs("platform", profile)
+        self.out = terraform.outputs("platform", profile, cfg.prefix)
         self._token, self._exp = "", 0.0
 
     @property

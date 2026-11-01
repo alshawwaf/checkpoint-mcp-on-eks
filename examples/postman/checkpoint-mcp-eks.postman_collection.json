@@ -1,0 +1,107 @@
+{
+  "info": {
+    "name": "Check Point MCP on EKS",
+    "description": "The security-ops agent and the MCP gateway of checkpoint-mcp-on-eks.\n\nSet the collection variables from `python -m chkpmcpeks endpoints --reveal-secret`. Authorization is OAuth 2.0 client credentials at the collection level; click **Get New Access Token** once (Postman refreshes it).\n\nSelf-signed demo certificate: Settings > Certificates > CA certificates > add the file printed as CHKP_CA_FILE (or set a real domain).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "oauth2",
+    "oauth2": [
+      {"key": "grant_type", "value": "client_credentials", "type": "string"},
+      {"key": "accessTokenUrl", "value": "{{tokenUrl}}", "type": "string"},
+      {"key": "clientId", "value": "{{clientId}}", "type": "string"},
+      {"key": "clientSecret", "value": "{{clientSecret}}", "type": "string"},
+      {"key": "scope", "value": "chkp-mcp/invoke", "type": "string"},
+      {"key": "client_authentication", "value": "header", "type": "string"},
+      {"key": "tokenName", "value": "chkp-mcp", "type": "string"},
+      {"key": "addTokenTo", "value": "header", "type": "string"},
+      {"key": "refreshTokenUrl", "value": "{{tokenUrl}}", "type": "string"}
+    ]
+  },
+  "variable": [
+    {"key": "baseUrl", "value": "https://<your-host>"},
+    {"key": "tokenUrl", "value": "https://<domain>.auth.us-east-1.amazoncognito.com/oauth2/token"},
+    {"key": "clientId", "value": ""},
+    {"key": "clientSecret", "value": ""},
+    {"key": "question", "value": "What is the reputation of https://www.checkpoint.com?"}
+  ],
+  "item": [
+    {
+      "name": "Agent",
+      "item": [
+        {
+          "name": "Ask the agent (JSON)",
+          "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
+            "pm.test('200 OK', () => pm.response.to.have.status(200));",
+            "const r = pm.response.json();",
+            "pm.test('answered from a tool', () => pm.expect(r.tool_calls.length).to.be.above(0));",
+            "console.log(r.model, r.usage, r.result);"
+          ]}}],
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": "{{baseUrl}}/v1/chat",
+            "body": {"mode": "raw", "raw": "{\n  \"prompt\": \"{{question}}\"\n}"}
+          }
+        },
+        {
+          "name": "Ask the agent (streamed SSE)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}, {"key": "Accept", "value": "text/event-stream"}],
+            "url": "{{baseUrl}}/v1/chat",
+            "body": {"mode": "raw", "raw": "{\n  \"prompt\": \"{{question}}\",\n  \"stream\": true\n}"}
+          }
+        },
+        {
+          "name": "Health (no auth)",
+          "request": {"auth": {"type": "noauth"}, "method": "GET", "url": "{{baseUrl}}/healthz"}
+        }
+      ]
+    },
+    {
+      "name": "MCP gateway",
+      "item": [
+        {
+          "name": "initialize",
+          "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"]}}],
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}, {"key": "Accept", "value": "application/json, text/event-stream"}],
+            "url": "{{baseUrl}}/mcp",
+            "body": {"mode": "raw", "raw": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},\"clientInfo\":{\"name\":\"postman\",\"version\":\"1\"}}}"}
+          }
+        },
+        {
+          "name": "tools/list",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}, {"key": "Accept", "value": "application/json, text/event-stream"}, {"key": "mcp-protocol-version", "value": "2025-06-18"}],
+            "url": "{{baseUrl}}/mcp",
+            "body": {"mode": "raw", "raw": "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}"}
+          }
+        },
+        {
+          "name": "tools/call reputation lookup",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}, {"key": "Accept", "value": "application/json, text/event-stream"}, {"key": "mcp-protocol-version", "value": "2025-06-18"}],
+            "url": "{{baseUrl}}/mcp",
+            "body": {"mode": "raw", "raw": "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"reputationservice_reputation_url\",\"arguments\":{\"resource\":\"https://www.checkpoint.com\"}}}"}
+          }
+        },
+        {
+          "name": "Negative: no token is refused (401)",
+          "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('401 without a token', () => pm.response.to.have.status(401));"]}}],
+          "request": {
+            "auth": {"type": "noauth"},
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}, {"key": "Accept", "value": "application/json, text/event-stream"}],
+            "url": "{{baseUrl}}/mcp",
+            "body": {"mode": "raw", "raw": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}"}
+          }
+        }
+      ]
+    }
+  ]
+}

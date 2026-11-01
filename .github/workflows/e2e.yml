@@ -1,0 +1,57 @@
+name: e2e
+
+# Full end-to-end on a real, ephemeral stack: deploy -> smoke -> ALWAYS destroy.
+# Manual only (it creates billable resources for ~40 minutes, about USD 1 per run).
+# Needs a deployer role (docs/iam/deployer-policy.sample.json) trusted for this
+# repository via GitHub OIDC, in the repository variable AWS_E2E_ROLE_ARN, and real
+# credentials in the chkp/<server>-ci secrets (the run uses --prefix ci).
+on:
+  workflow_dispatch:
+    inputs:
+      servers:
+        description: "Servers to deploy (space separated, or 'default')"
+        default: "reputation-service documentation"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: e2e
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    if: vars.AWS_E2E_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      CHKP_UI: plain
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_E2E_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-duration-seconds: 7200
+      - run: pip install -e ".[mcp]"
+      - name: Deploy
+        env:
+          SERVERS_INPUT: ${{ inputs.servers }}   # via env, never interpolated into the script
+        run: |
+          servers="$SERVERS_INPUT"
+          [ "$servers" = "default" ] && servers=""
+          python -m chkpmcpeks deploy --yes --prefix ci --servers "$servers"
+      - name: Smoke
+        run: python tests/e2e/smoke.py --prefix ci
+      - name: Destroy (always)
+        if: always()
+        run: python -m chkpmcpeks destroy --yes --prefix ci

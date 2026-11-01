@@ -9,9 +9,11 @@
 # The CLI points domain_name at the ALB after it exists (or use external-dns).
 
 locals {
-  use_domain    = var.domain_name != ""
-  alb_wildcard  = "*.${var.region}.elb.amazonaws.com"
-  self_signed_n = local.use_domain ? 0 : 1
+  use_domain   = var.domain_name != ""
+  alb_wildcard = "*.${var.region}.elb.amazonaws.com"
+  # Always kept (free): switching to a real domain must never delete a
+  # certificate the ALB is still using. The ALB moves to the domain cert first.
+  self_signed_n = 1
 }
 
 resource "tls_private_key" "alb" {

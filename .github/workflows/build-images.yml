@@ -1,0 +1,73 @@
+name: build-images
+
+# Builds the MCP server images (one per catalog server) and the agent image for
+# linux/arm64 + linux/amd64 and pushes them to the stack's ECR repositories.
+# Authenticates with GitHub OIDC -- no long-lived AWS keys in the repository.
+# Set the repository variable AWS_ROLE_ARN (output `github_actions_role_arn`
+# of terraform/build when github_repository is set) to enable it.
+
+on:
+  push:
+    branches: [main]
+    paths: ["images/**", "services/agent/**", "chkpmcpeks/config.py"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build:
+    if: vars.AWS_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Work out which images are missing (tags are immutable)
+        id: plan
+        run: |
+          pip install -q boto3 pyyaml
+          python - <<'EOF' >> "$GITHUB_OUTPUT"
+          import boto3, json
+          from chkpmcpeks.config import SERVER_CATALOG, StackConfig
+          from chkpmcpeks.build import agent_tag
+          cfg = StackConfig()
+          ecr = boto3.client("ecr")
+          def exists(repo, tag):
+              try:
+                  ecr.describe_images(repositoryName=repo, imageIds=[{"imageTag": tag}]); return True
+              except ecr.exceptions.ImageNotFoundException:
+                  return False
+          servers = [{"server": s, "version": m["version"]} for s, m in SERVER_CATALOG.items()
+                     if not exists(cfg.ecr_server_repo, cfg.image_tag(s))]
+          print("servers=" + json.dumps(servers))
+          print("agent_tag=" + ("" if exists(cfg.ecr_agent_repo, agent_tag()) else agent_tag()))
+          EOF
+      - name: Build server images
+        env:
+          SERVERS: ${{ steps.plan.outputs.servers }}
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          echo "$SERVERS" | python -c 'import json,sys; [print(f"{x[\"server\"]} {x[\"version\"]}") for x in json.load(sys.stdin)]' |
+          while read -r server version; do
+            docker buildx build --platform linux/arm64,linux/amd64 --push \
+              --build-arg CHKP_SERVER="$server" --build-arg CHKP_VERSION="$version" \
+              -t "$REGISTRY/chkp-mcp-eks/mcp-server:$server-$version" images/mcp-server
+          done
+      - name: Build agent image
+        if: steps.plan.outputs.agent_tag != ''
+        run: |
+          docker buildx build --platform linux/arm64,linux/amd64 --push \
+            -t "${{ steps.ecr.outputs.registry }}/chkp-mcp-eks/agent:${{ steps.plan.outputs.agent_tag }}" services/agent

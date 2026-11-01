@@ -112,7 +112,7 @@ def build_images(cfg, session, profile=None, servers=None, only=None, rep=None):
 
     rep.begin("Build stack (ECR + CodeBuild)")
     terraform.apply("build", cfg, profile)
-    out = terraform.outputs("build", profile)
+    out = terraform.outputs("build", profile, cfg.prefix)
     registry, srepo, arepo = out["registry"], out["server_repository"], out["agent_repository"]
     ecr = session.client("ecr", region_name=cfg.region)
 

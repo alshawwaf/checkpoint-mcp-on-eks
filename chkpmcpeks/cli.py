@@ -6,6 +6,8 @@
     python -m chkpmcpeks status                       # tools/list through the gateway
     python -m chkpmcpeks chat "question"              # ask the agent
     python -m chkpmcpeks creds template|apply         # chkp-credentials.env -> chkp/<server>
+    python -m chkpmcpeks endpoints [--format sh|ps1]  # URLs/client id for curl, Postman, n8n, MCP clients
+    python -m chkpmcpeks token                        # a fresh bearer token
     python -m chkpmcpeks kubeconfig                   # write a kubeconfig for this stack
     python -m chkpmcpeks destroy [--yes]              # remove everything this stack created
 
@@ -57,6 +59,8 @@ def build_parser():
     dep.add_argument("--creds", nargs="?", const="chkp-credentials.env", default=None,
                      help="apply a chkp-credentials.env before the servers start")
     dep.add_argument("--skip-build", action="store_true", help="reuse the images already in ECR")
+    dep.add_argument("--domain", default=None,
+                     help="public DNS name for the ALB (publicly trusted ACM cert); 'none' to go back to self-signed")
     dep.add_argument("--yes", action="store_true", help="do not ask before creating billable resources")
 
     b = sub.add_parser("build", parents=[common], help="build images on CodeBuild into ECR")
@@ -76,6 +80,11 @@ def build_parser():
     cr.add_argument("action", choices=["template", "apply"])
     cr.add_argument("--file", default=None, help="creds file (default chkp-credentials.env)")
     cr.add_argument("--servers", default=os.environ.get("SERVERS", ""))
+
+    e = sub.add_parser("endpoints", parents=[common], help="URLs, client id and CA for external tools")
+    e.add_argument("--format", choices=["text", "sh", "ps1"], default="text")
+    e.add_argument("--reveal-secret", action="store_true", help="also print the Cognito client secret")
+    sub.add_parser("token", parents=[common], help="print a fresh bearer token (60 min)")
 
     sub.add_parser("kubeconfig", parents=[common], help="write a kubeconfig for this stack's cluster")
 
@@ -151,7 +160,7 @@ def _main(argv=None):
 
     # Commands implemented in their own modules (added phase by phase).
     module = {"deploy": "deploy", "build": "build", "status": "verify", "chat": "chat",
-              "creds": "creds", "destroy": "destroy"}[args.cmd]
+              "creds": "creds", "destroy": "destroy", "endpoints": "info", "token": "info"}[args.cmd]
     try:
         mod = importlib.import_module(f"chkpmcpeks.{module}")
     except ModuleNotFoundError:

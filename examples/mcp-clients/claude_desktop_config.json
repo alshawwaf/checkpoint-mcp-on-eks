@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "checkpoint": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote@latest",
+        "https://<your-host>/mcp",
+        "--header",
+        "Authorization:${CHKP_AUTH}"
+      ],
+      "env": {
+        "CHKP_AUTH": "Bearer <paste the output of: python -m chkpmcpeks token>",
+        "NODE_EXTRA_CA_CERTS": "<path printed as CHKP_CA_FILE by: python -m chkpmcpeks endpoints (omit with a real domain)>"
+      }
+    }
+  }
+}

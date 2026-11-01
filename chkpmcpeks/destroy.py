@@ -110,7 +110,7 @@ def leftovers(session, cfg):
 
 def run(cfg, session, args, profile=None):
     st = Stack(cfg, session, profile)
-    build_out = terraform.outputs("build", profile)
+    build_out = terraform.outputs("build", profile, cfg.prefix)
     plan = ["", "chkpmcpeks destroy will remove:"]
     if st.deployed:
         plan += [f"  - EKS cluster {st.out['cluster_name']}, its nodes, ALB, VPC {st.out['vpc_id']} and NAT gateway",
