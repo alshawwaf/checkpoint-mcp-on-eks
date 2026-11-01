@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chkpmcpeks"
+version = "0.1.0"
+description = "Check Point MCP servers + a security-ops agent on Amazon EKS -- deploy/status/chat/creds/destroy CLI"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = ["boto3>=1.40", "pyyaml>=6"]
+
+[project.optional-dependencies]
+mcp = ["mcp>=2.3,<3"]
+dev = ["pytest>=8", "ruff>=0.6", "mcp>=2.3,<3", "pyjwt[crypto]>=2.8", "fastapi>=0.115", "uvicorn>=0.30", "openai>=1.40"]
+
+[project.scripts]
+chkpmcpeks = "chkpmcpeks.cli:main"
+
+[tool.setuptools]
+packages = ["chkpmcpeks"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+extend-exclude = ["spike/bin"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S"]
+ignore = ["S101", "S603", "S607", "S310", "E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "services/agent/tests"]
+pythonpath = [".", "services/agent"]
