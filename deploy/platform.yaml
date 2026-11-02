@@ -6,6 +6,8 @@
 # 2. A Graviton (arm64) NodePool for EKS Auto Mode. The built-in
 #    general-purpose pool is amd64-only; this pool uses the built-in `default`
 #    NodeClass and lets Karpenter pick the cheapest suitable c/m/r 7g+ instance.
+# 3. Turns on EKS Auto Mode's network policy controller. Without it the
+#    chart's NetworkPolicies are accepted but NOT enforced.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -17,6 +19,14 @@ metadata:
     pod-security.kubernetes.io/audit: restricted
     # Register ALB targets only once pods are actually ready (Auto Mode).
     eks.amazonaws.com/pod-readiness-gate-inject: enabled
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: amazon-vpc-cni
+  namespace: kube-system
+data:
+  enable-network-policy-controller: "true"
 ---
 apiVersion: karpenter.sh/v1
 kind: NodePool

@@ -4,6 +4,7 @@
     python -m chkpmcpeks endpoints --format sh        # export CHKP_*=... (bash/zsh)
     python -m chkpmcpeks endpoints --format ps1       # $env:CHKP_*=...  (PowerShell)
     python -m chkpmcpeks endpoints --reveal-secret    # include the client secret
+    python -m chkpmcpeks endpoints --copy-secret      # client secret -> clipboard, never printed
     python -m chkpmcpeks token                        # a fresh bearer token, nothing else
 
 The client secret is printed only with --reveal-secret, so it never lands in a
@@ -12,8 +13,23 @@ terminal or log by accident. Tokens last 60 minutes.
 
 from __future__ import annotations
 
+import shutil
+import subprocess
+import sys
+
 from .awsutil import log
 from .stack import Stack
+
+
+def copy_to_clipboard(text):
+    """Put text on the clipboard without echoing it. Returns the tool used, or ''."""
+    candidates = [["clip"]] if sys.platform.startswith("win") else (
+        [["pbcopy"]] if sys.platform == "darwin" else [["wl-copy"], ["xclip", "-selection", "clipboard"]])
+    for cmd in candidates:
+        if shutil.which(cmd[0]):
+            subprocess.run(cmd, input=text.encode("utf-8"), check=True)
+            return cmd[0]
+    return ""
 
 
 def collect(st, reveal=False):
@@ -41,6 +57,10 @@ def run(cfg, session, args, profile=None):
     if args.cmd == "token":
         print(st.token())
         return 0
+    if getattr(args, "copy_secret", False):
+        tool = copy_to_clipboard(st.client_secret())
+        log(f"client secret copied to the clipboard ({tool})" if tool else "no clipboard tool found (clip/pbcopy/xclip)")
+        return 0 if tool else 1
     info = collect(st, reveal=args.reveal_secret)
     for k, v in info.items():
         if args.format == "sh":

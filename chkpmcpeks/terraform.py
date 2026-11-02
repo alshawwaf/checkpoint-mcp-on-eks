@@ -54,9 +54,13 @@ def save_stack_settings(prefix, **values):
     return doc
 
 
+TF_SETTINGS = ("domain_name",)   # saved settings that are Terraform variables (the rest feed Helm)
+
+
 def tf_vars(cfg, extra=None, stack="platform"):
     out = ["-var", f"region={cfg.region}", "-var", f"prefix={cfg.prefix}"]
-    saved = stack_settings(cfg.prefix) if stack == "platform" else {}   # e.g. domain_name
+    saved = ({k: v for k, v in stack_settings(cfg.prefix).items() if k in TF_SETTINGS}
+             if stack == "platform" else {})
     merged = {**saved, **(extra or {})}
     for k, v in merged.items():
         out += ["-var", f"{k}={json.dumps(v) if isinstance(v, (list, dict)) else v}"]

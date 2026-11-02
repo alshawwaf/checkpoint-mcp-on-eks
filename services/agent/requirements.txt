@@ -6,4 +6,5 @@ uvicorn==0.54.0
 pyjwt[crypto]==2.15.1
 cryptography==50.0.2
 openai==3.42.1
+anthropic==2.3.0
 prometheus-client==0.26.0

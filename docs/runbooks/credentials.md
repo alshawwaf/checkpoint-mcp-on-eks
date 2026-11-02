@@ -34,7 +34,9 @@ CLIENT_ID=infinity-portal-client-id
 SECRET_KEY=infinity-portal-secret
 
 [llm]
-AZURE_OPENAI_API_KEY=only-if-you-use-azure-openai
+# fill only the key for the provider you pick with `deploy --llm-provider`; empty lines are ignored
+ANTHROPIC_API_KEY=
+AZURE_OPENAI_API_KEY=
 ```
 
 `apply` behaves as follows:

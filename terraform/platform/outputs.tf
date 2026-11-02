@@ -18,6 +18,16 @@ output "vpc_cidr" {
   value = var.vpc_cidr
 }
 
+output "public_subnet_cidrs" {
+  description = "Where the ALB lives; the only sources allowed to reach the agent and gateway pods"
+  value       = module.vpc.public_subnets_cidr_blocks
+}
+
+output "cluster_service_cidr" {
+  description = "Service CIDR; EKS Auto Mode serves DNS on its .10 address on every node"
+  value       = module.eks.cluster_service_cidr
+}
+
 output "nat_public_ips" {
   description = "Egress IPs of the cluster -- allow-list these on on-prem management servers."
   value       = module.vpc.nat_public_ips

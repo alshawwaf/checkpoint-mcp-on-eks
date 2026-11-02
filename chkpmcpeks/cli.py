@@ -61,6 +61,10 @@ def build_parser():
     dep.add_argument("--skip-build", action="store_true", help="reuse the images already in ECR")
     dep.add_argument("--domain", default=None,
                      help="public DNS name for the ALB (publicly trusted ACM cert); 'none' to go back to self-signed")
+    dep.add_argument("--llm-provider", choices=["bedrock", "anthropic", "azure", "openai"], default=None,
+                     help="agent LLM (remembered): bedrock (default), anthropic (Claude API key), azure, openai")
+    dep.add_argument("--llm-model", default=None,
+                     help="agent model id (remembered); '' = provider default (Bedrock auto-select, claude-opus-5-5)")
     dep.add_argument("--yes", action="store_true", help="do not ask before creating billable resources")
 
     b = sub.add_parser("build", parents=[common], help="build images on CodeBuild into ECR")
@@ -84,6 +88,7 @@ def build_parser():
     e = sub.add_parser("endpoints", parents=[common], help="URLs, client id and CA for external tools")
     e.add_argument("--format", choices=["text", "sh", "ps1"], default="text")
     e.add_argument("--reveal-secret", action="store_true", help="also print the Cognito client secret")
+    e.add_argument("--copy-secret", action="store_true", help="copy the client secret to the clipboard (not printed)")
     sub.add_parser("token", parents=[common], help="print a fresh bearer token (60 min)")
 
     sub.add_parser("kubeconfig", parents=[common], help="write a kubeconfig for this stack's cluster")

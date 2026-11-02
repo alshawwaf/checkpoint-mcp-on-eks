@@ -3,7 +3,7 @@
 Same file format as the AgentCore project (one `[server]` section of
 KEY=VALUE lines per server), so an existing chkp-credentials.env works
 unchanged. Each section becomes that server's own `chkp/<server>` secret.
-An optional `[llm]` section (OPENAI_API_KEY / AZURE_OPENAI_API_KEY) fills
+An optional `[llm]` section (ANTHROPIC_API_KEY / OPENAI_API_KEY / AZURE_OPENAI_API_KEY) fills
 this stack's LLM secret for non-Bedrock providers.
 
 Differences from the AgentCore CLI, by design:
@@ -135,7 +135,7 @@ def apply(cfg, session, path=None, kube=None, llm_secret=None):
                 pass
             current.update({k: v for k, v in body.items() if v})
             _put(sm, cfg, llm_secret, current)
-            log(f"  [llm] -> {llm_secret}  ({len(body)} key(s); values not printed)")
+            log(f"  [llm] -> {llm_secret}  ({sum(1 for v in body.values() if v)} key(s); values not printed)")
             continue
         if section not in config.SERVER_CATALOG or not cfg.server_needs_creds(section):
             log(f"  skipping [{section}]: not a credentialed Check Point server")

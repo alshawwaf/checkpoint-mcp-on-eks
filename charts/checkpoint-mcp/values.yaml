@@ -142,8 +142,10 @@ agent:
   port: 8080
   serviceAccountName: chkp-agent     # bound to the Bedrock role by EKS Pod Identity
   llm:
-    provider: bedrock                # bedrock | azure | openai
-    model: ""                        # empty = auto-select (Claude preferred, Nova fallback) on Bedrock
+    provider: bedrock                # bedrock | anthropic | azure | openai
+    model: ""                        # empty = Bedrock auto-select (Claude preferred, Nova fallback); claude-opus-5-5 on anthropic
+    effort: medium                   # anthropic only: low | medium | high | xhigh | max
+    anthropicBaseUrl: ""             # anthropic only: an LLM gateway/proxy in front of the Anthropic API (disables server-side fallbacks)
     azureEndpoint: ""
     azureApiVersion: "2024-10-21"
     openaiBaseUrl: ""
@@ -151,7 +153,7 @@ agent:
   maxTokens: 2048
   gatewayTokenUrl: ""                # Cognito /oauth2/token
   clientSecretName: chkp-mcp-eks/agent-gateway-client   # GATEWAY_CLIENT_ID / GATEWAY_CLIENT_SECRET
-  llmSecretName: chkp-mcp-eks/llm                       # OPENAI_API_KEY / AZURE_OPENAI_API_KEY
+  llmSecretName: chkp-mcp-eks/llm                       # ANTHROPIC_API_KEY / OPENAI_API_KEY / AZURE_OPENAI_API_KEY
   logLevel: INFO
   resources:
     requests: {cpu: 50m, memory: 192Mi}
@@ -176,7 +178,12 @@ ingress:
 # --------------------------------------------------------------------------- NetworkPolicy
 networkPolicy:
   enabled: true
-  vpcCidr: "10.40.0.0/16"            # where ALB health checks and traffic come from
+  vpcCidr: "10.40.0.0/16"            # fallback source for ALB traffic when albCidrs is empty
+  albCidrs: []                       # ALB (public) subnet CIDRs -- set by `chkpmcpeks deploy`
+  dnsCidrs: []                       # node-local DNS on EKS Auto Mode: <service CIDR>.10/32 -- set by deploy
+  # Service CIDR. EKS's policy agent sees ClusterIP destinations before DNAT, so
+  # pod-selector egress rules also need this range on the same port -- set by deploy.
+  serviceCidr: ""
   # Namespaces allowed to scrape metrics (Prometheus / CloudWatch agent).
   metricsFromNamespaces: [amazon-cloudwatch, monitoring]
 

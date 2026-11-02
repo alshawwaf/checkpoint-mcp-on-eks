@@ -108,6 +108,8 @@ spec:
             - {name: AZURE_OPENAI_ENDPOINT, value: {{ $ag.llm.azureEndpoint | quote }}}
             - {name: AZURE_OPENAI_API_VERSION, value: {{ $ag.llm.azureApiVersion | quote }}}
             - {name: OPENAI_BASE_URL, value: {{ $ag.llm.openaiBaseUrl | quote }}}
+            - {name: ANTHROPIC_BASE_URL, value: {{ $ag.llm.anthropicBaseUrl | default "" | quote }}}
+            - {name: LLM_EFFORT, value: {{ $ag.llm.effort | default "medium" | quote }}}
             - {name: MAX_TURNS, value: {{ $ag.maxTurns | quote }}}
             - {name: MAX_TOKENS, value: {{ $ag.maxTokens | quote }}}
             - {name: LOG_LEVEL, value: {{ $ag.logLevel | quote }}}

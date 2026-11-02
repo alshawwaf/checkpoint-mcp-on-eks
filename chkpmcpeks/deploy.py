@@ -34,8 +34,10 @@ STEPS = ["Preflight", "Images (CodeBuild -> ECR)", "Platform (Terraform)", "Clus
          "Workloads (Helm)", "Load balancer", "Verify"]
 
 
-def generated_values(cfg, out, resource_url=""):
-    """Terraform outputs -> Helm values (written to values-generated.yaml)."""
+def generated_values(cfg, out, resource_url="", settings=None):
+    """Terraform outputs (+ saved --llm-* choices) -> Helm values (values-generated.yaml)."""
+    settings = settings if settings is not None else terraform.stack_settings(cfg.prefix)
+    llm = {"provider": settings.get("llm_provider") or "bedrock", "model": settings.get("llm_model") or ""}
     return {
         "region": cfg.region,
         "secrets": {"prefix": out.get("secret_name_prefix", "chkp/"),
@@ -46,11 +48,41 @@ def generated_values(cfg, out, resource_url=""):
                  "requiredScope": out["cognito_scope"], "resourceUrl": resource_url},
         "agent": {"gatewayTokenUrl": out["cognito_token_url"],
                   "clientSecretName": out["agent_client_secret_name"],
-                  "llmSecretName": out["llm_secret_name"]},
+                  "llmSecretName": out["llm_secret_name"], "llm": llm},
         "ingress": {"certificateArn": out["certificate_arn"], "inboundCidrs": out["alb_inbound_cidrs"],
                     "host": out.get("domain_name") or ""},
-        "networkPolicy": {"vpcCidr": out["vpc_cidr"]},
+        "networkPolicy": {"vpcCidr": out["vpc_cidr"], "albCidrs": list(out.get("public_subnet_cidrs") or []),
+                          "dnsCidrs": [dns_cidr(out["cluster_service_cidr"])] if out.get("cluster_service_cidr") else [],
+                          "serviceCidr": out.get("cluster_service_cidr") or ""},
     }
+
+
+LLM_KEYS = {"anthropic": "ANTHROPIC_API_KEY", "azure": "AZURE_OPENAI_API_KEY", "openai": "OPENAI_API_KEY"}
+
+
+def check_llm_secret(session, cfg, out):
+    """A non-Bedrock agent needs its API key in the stack's LLM secret before
+    Helm waits for it; fail early with the fix instead of a Helm timeout."""
+    import json
+
+    provider = terraform.stack_settings(cfg.prefix).get("llm_provider") or "bedrock"
+    key = LLM_KEYS.get(provider)
+    if not key:
+        return
+    name = out["llm_secret_name"]
+    raw = session.client("secretsmanager", region_name=cfg.region).get_secret_value(SecretId=name)["SecretString"]
+    if json.loads(raw or "{}").get(key):
+        log(f"  {key} present in {name} (value not printed)")
+        return
+    raise RuntimeError(f"--llm-provider {provider} needs {key} in {name}: add it under [llm] in "
+                       f"chkp-credentials.env, run `python -m chkpmcpeks creds apply`, then re-run deploy")
+
+
+def dns_cidr(service_cidr):
+    """EKS Auto Mode serves cluster DNS on the service CIDR's .10 address, on the node."""
+    import ipaddress
+
+    return f"{ipaddress.ip_network(service_cidr).network_address + 10}/32"
 
 
 def write_values(doc):
@@ -122,6 +154,11 @@ def _deploy(cfg, session, args, profile, rep):
     log("  VPC, EKS Auto Mode, Cognito, Pod Identity roles, ACM -- first run takes ~15-20 min")
     if args.domain is not None:
         terraform.save_stack_settings(cfg.prefix, domain_name="" if args.domain == "none" else args.domain)
+    if getattr(args, "llm_provider", None) or getattr(args, "llm_model", None) is not None:
+        terraform.save_stack_settings(cfg.prefix, llm_provider=args.llm_provider, llm_model=args.llm_model)
+    saved = terraform.stack_settings(cfg.prefix)
+    log(f"  agent LLM: {saved.get('llm_provider') or 'bedrock'}"
+        f"{' / ' + saved['llm_model'] if saved.get('llm_model') else ' (auto model)'}")
     domain = terraform.stack_settings(cfg.prefix).get("domain_name", "")
     if domain:
         log(f"  public name: {domain} (DNS-validated ACM certificate)")
@@ -159,6 +196,8 @@ def _deploy(cfg, session, args, profile, rep):
     log(f"  reusing {len(have)} existing chkp/<server> secret(s); placeholders created: {', '.join(made) or 'none'}")
     if args.creds:
         creds.apply(cfg, session, args.creds, kube=None, llm_secret=out.get("llm_secret_name"))
+
+    check_llm_secret(session, cfg, out)
 
     rep.begin("Workloads (Helm)")
     write_values(generated_values(cfg, out))

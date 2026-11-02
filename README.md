@@ -41,7 +41,15 @@ Every published `@chkp` server we host runs as its own hardened Kubernetes Deplo
 The agent is an HTTP service in the cluster (`POST /v1/chat`, JSON or a streamed SSE response). It discovers the gateway's tools, reasons with an LLM, calls the Check Point tools **through the gateway**, and answers from real tool output. The LLM is **pluggable**:
 
 - **Amazon Bedrock** by default, model invocation only, with EKS Pod Identity. Claude is preferred and Amazon Nova is the fallback, chosen automatically.
+- **Claude through the Anthropic API** with your own API key and its spend limit: `deploy --llm-provider anthropic` (default model `claude-opus-5-5`, change it with `--llm-model`).
 - **Azure OpenAI**, or any **OpenAI-compatible** endpoint, by setting.
+
+To switch the agent to your Anthropic API key, put the key in the `[llm]` section of `chkp-credentials.env` and redeploy. The choice is remembered for later deploys.
+
+```bash
+python -m chkpmcpeks creds apply
+python -m chkpmcpeks deploy --llm-provider anthropic --skip-build
+```
 
 Prompt caching, streaming and token telemetry are built in. The CLI, curl, Postman, n8n and Teams flows call the same authenticated endpoint.
 
@@ -120,6 +128,8 @@ python -m chkpmcpeks deploy
 ```
 
 It asks before creating billable resources and takes about 30–40 minutes the first time. It builds the images, applies Terraform (VPC, EKS Auto Mode, Cognito, Pod Identity, ACM), installs External Secrets and Reloader, deploys the Helm chart, waits for the ALB, and then verifies: an unauthenticated request must be refused, and `tools/list` must work through the gateway. Every step is idempotent, so re-run it after any interruption.
+
+Without a domain, the ALB serves a self-signed certificate. Desktop MCP apps and n8n's MCP node need a publicly trusted one, so add `--domain mcp.example.com`. See [serve it on your own domain](docs/runbooks/custom-domain.md) for the DNS records.
 
 ### 5. Credentials
 
@@ -216,6 +226,7 @@ Global options, accepted before or after the command: `--region`, `--prefix` (a 
   - [credentials](docs/runbooks/credentials.md)
   - [add a server](docs/runbooks/add-a-server.md)
   - [call it from anywhere](docs/runbooks/invoke-from-anywhere.md)
+  - [serve it on your own domain](docs/runbooks/custom-domain.md)
   - [bring your own platform (Argo CD, Okta, Vault)](docs/runbooks/bring-your-own-platform.md)
   - [troubleshooting](docs/runbooks/troubleshooting.md)
   - [upgrades](docs/runbooks/upgrade.md)
@@ -238,7 +249,7 @@ Global options, accepted before or after the command: `--region`, `--prefix` (a 
 | Images, Terraform, Helm, gateway, agent, teardown | Deployed and verified end to end in a live AWS account (us-east-1), Nov 2026. |
 | `reputation-service` through gateway and agent | Verified with real ThreatCloud data. |
 | Other servers | Wired identically, smoke-tested (`/health` + `tools/list`); need your credentials for real data. |
-| Azure OpenAI / OpenAI providers | Unit-tested; enable with `agent.llm.provider`. |
+| Anthropic API, Azure OpenAI and OpenAI providers | Unit-tested; enable with `deploy --llm-provider`. |
 
 This is a reference architecture and demo, not a supported Check Point product. Review [security](docs/security.md) before using real credentials.
 

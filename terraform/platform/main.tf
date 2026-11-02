@@ -159,13 +159,13 @@ resource "aws_secretsmanager_secret_version" "agent_client" {
 # empty; `chkpmcpeks creds apply` with an [llm] section fills it.
 resource "aws_secretsmanager_secret" "llm" {
   name                    = "${local.name}/llm"
-  description             = "API keys for Azure OpenAI / OpenAI-compatible LLM providers (optional)"
+  description             = "API keys for the Anthropic API / Azure OpenAI / OpenAI-compatible LLM providers (optional)"
   recovery_window_in_days = 0
 }
 
 resource "aws_secretsmanager_secret_version" "llm" {
   secret_id     = aws_secretsmanager_secret.llm.id
-  secret_string = jsonencode({ OPENAI_API_KEY = "", AZURE_OPENAI_API_KEY = "" })
+  secret_string = jsonencode({ ANTHROPIC_API_KEY = "", OPENAI_API_KEY = "", AZURE_OPENAI_API_KEY = "" })
   lifecycle {
     ignore_changes = [secret_string] # values are managed by `creds apply`, not Terraform
   }

@@ -2,7 +2,7 @@ from types import SimpleNamespace as NS
 
 from botocore.exceptions import ClientError
 
-from chkp_agent.providers import base, bedrock, openai_compat
+from chkp_agent.providers import anthropic_api, base, bedrock, openai_compat
 
 
 def test_sanitize_and_name_map():
@@ -90,3 +90,72 @@ def test_openai_stream_accumulation_and_cached_usage():
     assert calls == [{"id": "c1", "name": "reputationservice_lookup", "args": '{"u":"x"}'}]
     assert finish == "tool_calls"
     assert openai_compat.normalise_usage(u) == {"in": 176, "out": 30, "cache_read": 1024, "cache_write": 0}
+
+
+class _FakeStream:
+    def __init__(self, msg, deltas):
+        self.msg, self.text_stream = msg, iter(deltas)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+    def get_final_message(self):
+        return self.msg
+
+
+class _FakeAnthropic:
+    def __init__(self, replies):
+        self.replies, self.requests = list(replies), []
+        self.beta = NS(messages=NS(stream=self._stream))
+
+    def _stream(self, **kw):
+        self.requests.append(kw)
+        msg, deltas = self.replies.pop(0)
+        return _FakeStream(msg, deltas)
+
+
+def _msg(content, stop, model="claude-opus-5-5"):
+    usage = NS(input_tokens=50, output_tokens=20, cache_read_input_tokens=3000, cache_creation_input_tokens=0)
+    return NS(content=content, stop_reason=stop, model=model, usage=usage)
+
+
+def test_anthropic_tool_turn_caching_and_history():
+    tool_msg = _msg([NS(type="thinking", thinking=""), NS(type="text", text="Checking."),
+                     NS(type="tool_use", id="tu1", name="reputationservice_url", input={"resource": "x"})],
+                    "tool_use")
+    final = _msg([NS(type="text", text="Clean.")], "end_turn")
+    fake = _FakeAnthropic([(tool_msg, ["Check", "ing."]), (final, ["Clean."])])
+    conv = anthropic_api.AnthropicFactory(fake, max_tokens=2048).new()
+    conv.start("SYS", [("reputationservice_url", "d", {"type": "object"})])
+    conv.add_user("q")
+    seen = []
+    turn = conv.step(seen.append)
+    assert seen == ["Check", "ing."]
+    assert [(c.id, c.name, c.args) for c in turn.tool_calls] == [("tu1", "reputationservice_url", {"resource": "x"})]
+    assert turn.usage == {"in": 50, "out": 20, "cache_read": 3000, "cache_write": 0}
+    req = fake.requests[0]
+    assert req["system"][0]["cache_control"] == {"type": "ephemeral"} and req["cache_control"]
+    assert req["max_tokens"] >= 16000 and req["fallbacks"] == "default"
+    assert req["output_config"] == {"effort": "medium"} and "tool_choice" not in req
+    # the whole assistant content (thinking included) goes back unchanged
+    assert conv.messages[-1]["content"] is tool_msg.content
+    conv.add_tool_results([(turn.tool_calls[0], "clean", False)])
+    assert conv.messages[-1]["content"][0] == {"type": "tool_result", "tool_use_id": "tu1",
+                                               "content": "clean", "is_error": False}
+    assert conv.step().text == "Clean."
+
+
+def test_anthropic_refusal_and_truncated_tool_call_run_no_tools():
+    tu = NS(type="tool_use", id="t", name="a_b", input={})
+    fake = _FakeAnthropic([(_msg([tu], "refusal"), []), (_msg([tu], "max_tokens"), [])])
+    conv = anthropic_api.AnthropicFactory(fake, fallbacks=False).new()
+    conv.start("S", [("a_b", "d", {})])
+    conv.add_user("q")
+    t1 = conv.step()
+    assert t1.tool_calls == [] and t1.stop == "refusal" and t1.text
+    assert "fallbacks" not in fake.requests[0]
+    t2 = conv.step()
+    assert t2.tool_calls == [] and t2.stop == "max_tokens"

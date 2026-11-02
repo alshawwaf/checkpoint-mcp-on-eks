@@ -2,13 +2,15 @@
 {{- $np := .Values.networkPolicy }}
 {{- /*
 Zero-trust inside the namespace: deny everything, then allow exactly
-  ALB (VPC CIDR)  -> agentgateway :3000/:15021, agent :8080
+  ALB subnets     -> agentgateway :3000/:15021, agent :8080
   agent           -> agentgateway :3000, Bedrock/Cognito :443, Pod Identity agent
   agentgateway    -> MCP servers :8000, Cognito JWKS :443
   MCP servers     -> serverDefaults.egress (default :443 anywhere) -- nothing else,
                      and nothing but agentgateway may reach them
-EKS Auto Mode enforces NetworkPolicy natively.
+EKS Auto Mode enforces these only once its network policy controller is
+enabled (the amazon-vpc-cni ConfigMap in deploy/platform.yaml).
 */ -}}
+{{- $albSources := $np.albCidrs | default (list $np.vpcCidr) }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -32,6 +34,9 @@ spec:
     - to:
         - namespaceSelector:
             matchLabels: {kubernetes.io/metadata.name: kube-system}
+        {{- range $np.dnsCidrs }}
+        - ipBlock: {cidr: {{ . }}}                 # Auto Mode: DNS runs on the node itself
+        {{- end }}
       ports:
         - {protocol: UDP, port: 53}
         - {protocol: TCP, port: 53}
@@ -74,7 +79,9 @@ spec:
   policyTypes: [Ingress, Egress]
   ingress:
     - from:
-        - ipBlock: {cidr: {{ $np.vpcCidr }}}          # the ALB and its health checks
+        {{- range $albSources }}
+        - ipBlock: {cidr: {{ . }}}                 # the ALB and its health checks
+        {{- end }}
         - podSelector:
             matchLabels: {app.kubernetes.io/name: chkp-agent}
       ports:
@@ -93,6 +100,9 @@ spec:
     - to:
         - podSelector:
             matchLabels: {app.kubernetes.io/component: mcp-server}
+        {{- with $np.serviceCidr }}
+        - ipBlock: {cidr: {{ . }}}                 # Service ClusterIPs (pre-DNAT); servers' ingress still admits only the gateway
+        {{- end }}
       ports:
         - {protocol: TCP, port: {{ $.Values.serverDefaults.port }}}
     - to:                                            # Cognito JWKS, OTLP collector
@@ -113,7 +123,9 @@ spec:
   policyTypes: [Ingress, Egress]
   ingress:
     - from:
-        - ipBlock: {cidr: {{ $np.vpcCidr }}}
+        {{- range $albSources }}
+        - ipBlock: {cidr: {{ . }}}
+        {{- end }}
       ports:
         - {protocol: TCP, port: {{ $.Values.agent.port }}}
     {{- with $np.metricsFromNamespaces }}
@@ -129,6 +141,9 @@ spec:
     - to:
         - podSelector:
             matchLabels: {app.kubernetes.io/name: agentgateway}
+        {{- with $np.serviceCidr }}
+        - ipBlock: {cidr: {{ . }}}                 # the gateway's Service ClusterIP
+        {{- end }}
       ports:
         - {protocol: TCP, port: {{ $.Values.agentgateway.port }}}
     - to:                                            # EKS Pod Identity agent (link-local)

@@ -10,7 +10,7 @@ Both projects run the same 15 `@chkp` MCP servers behind one authenticated gatew
 | **Inbound auth** | Cognito JWT at the gateway | Cognito JWT at the gateway and at the agent; any OIDC issuer |
 | **Policy** | AgentCore Policy (Cedar), Bedrock Guardrails | CEL rules in agentgateway (client, scope, per-tool read-only), Kubernetes NetworkPolicies |
 | **Network control** | Public runtimes, or VPC mode | Private subnets, default-deny NetworkPolicies, one NAT egress IP to allow-list |
-| **LLM** | Bedrock (Claude, Nova) | Bedrock by default; Azure OpenAI or any OpenAI-compatible endpoint by config |
+| **LLM** | Bedrock (Claude, Nova) | Bedrock by default; the Anthropic API, Azure OpenAI or any OpenAI-compatible endpoint by config |
 | **Portability** | AWS only, AgentCore regions only | Any conformant Kubernetes; the chart and images run on EKS, AKS, GKE or on-prem with config changes |
 | **Delivery** | One Python CLI calling AWS APIs | Terraform + Helm + images by digest, GitOps-ready, plus the same one-command CLI |
 | **Idle cost** | Near zero: runtimes scale to zero, you pay per use | About USD 10–12/day while the cluster exists (control plane, nodes, NAT, ALB) |
@@ -20,7 +20,7 @@ Both projects run the same 15 `@chkp` MCP servers behind one authenticated gatew
 ## Choose EKS when
 
 - You already run Kubernetes, and platform, security and SRE teams want MCP workloads on the **same** cluster tooling: GitOps, admission policy, service mesh, central logging.
-- You need **portability**: the same chart on another cloud or on-prem, or a model provider other than Bedrock (Azure OpenAI, self-hosted).
+- You need **portability**: the same chart on another cloud or on-prem, or a model provider other than Bedrock (the Anthropic API, Azure OpenAI, self-hosted).
 - **Network control** matters: private subnets, a single egress IP for on-prem management servers, NetworkPolicies, a corporate egress proxy, Vault for secrets.
 - You want to inspect, patch or replace every component, including the gateway, and pin everything by digest.
 - Steady traffic makes always-on capacity cost-effective, or you want zero cold starts.

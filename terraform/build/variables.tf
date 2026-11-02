@@ -11,7 +11,7 @@ variable "prefix" {
 
   validation {
     condition     = can(regex("^([a-z][a-z0-9-]{0,11})?$", var.prefix))
-    error_message = "prefix must match [a-z][a-z0-9-]{0,11} or be empty."
+    error_message = "The prefix must match [a-z][a-z0-9-]{0,11}, or be empty."
   }
 }
 

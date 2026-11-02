@@ -1,4 +1,4 @@
-"""LLM provider selection (LLM_PROVIDER = bedrock | azure | openai)."""
+"""LLM provider selection (LLM_PROVIDER = bedrock | anthropic | azure | openai)."""
 
 from __future__ import annotations
 
@@ -11,6 +11,10 @@ def make_factory(settings):
         from .bedrock import BedrockFactory
 
         return BedrockFactory(settings.aws_region, settings.model, settings.max_tokens)
+    if p in ("anthropic", "claude"):
+        from .anthropic_api import AnthropicFactory
+
+        return AnthropicFactory.from_settings(settings)
     if p in ("azure", "azure-openai", "azure_openai"):
         from .openai_compat import OpenAIFactory
 
@@ -19,4 +23,4 @@ def make_factory(settings):
         from .openai_compat import OpenAIFactory
 
         return OpenAIFactory.openai(settings)
-    raise ValueError(f"unknown LLM_PROVIDER '{p}' (expected bedrock, azure or openai)")
+    raise ValueError(f"unknown LLM_PROVIDER '{p}' (expected bedrock, anthropic, azure or openai)")

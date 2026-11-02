@@ -61,3 +61,37 @@ def test_validate_rejects_unknown_server_and_bad_prefix():
         StackConfig(servers=("nope",)).validate()
     with pytest.raises(ValueError):
         StackConfig(prefix="Bad_Prefix").validate()
+
+
+def test_dns_cidr_is_service_cidr_dot_10():
+    from chkpmcpeks.deploy import dns_cidr
+
+    assert dns_cidr("172.20.0.0/16") == "172.20.0.10/32"
+    assert dns_cidr("10.100.0.0/16") == "10.100.0.10/32"
+
+
+def test_generated_values_carry_llm_choice_and_policy_sources():
+    from chkpmcpeks.config import StackConfig
+    from chkpmcpeks.deploy import generated_values
+
+    out = {"cognito_issuer": "i", "cognito_jwks_url": "j", "external_client_id": "e", "agent_client_id": "a",
+           "cognito_scope": "s", "cognito_token_url": "t", "agent_client_secret_name": "c",
+           "llm_secret_name": "l", "certificate_arn": "arn", "alb_inbound_cidrs": ["0.0.0.0/0"],
+           "vpc_cidr": "10.40.0.0/16", "public_subnet_cidrs": ["10.40.240.0/24"],
+           "cluster_service_cidr": "172.20.0.0/16"}
+    v = generated_values(StackConfig(), out, settings={"llm_provider": "anthropic"})
+    assert v["agent"]["llm"] == {"provider": "anthropic", "model": ""}
+    assert v["networkPolicy"]["albCidrs"] == ["10.40.240.0/24"]
+    assert v["networkPolicy"]["dnsCidrs"] == ["172.20.0.10/32"]
+    assert v["networkPolicy"]["serviceCidr"] == "172.20.0.0/16"
+    assert generated_values(StackConfig(), out, settings={})["agent"]["llm"]["provider"] == "bedrock"
+
+
+def test_only_terraform_settings_become_tf_vars(tmp_path, monkeypatch):
+    from chkpmcpeks import terraform
+    from chkpmcpeks.config import StackConfig
+
+    monkeypatch.setattr(terraform, "stack_settings",
+                        lambda prefix="": {"domain_name": "x.example.com", "llm_provider": "anthropic"})
+    args = terraform.tf_vars(StackConfig())
+    assert "domain_name=x.example.com" in args and not any("llm_provider" in a for a in args)

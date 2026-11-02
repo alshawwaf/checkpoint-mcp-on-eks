@@ -38,4 +38,8 @@ python -m chkpmcpeks token
 
 Tokens last 60 minutes. Every token request is billed by Cognito, so tools should cache them.
 
-> **No domain yet?** The ALB serves a self-signed certificate. Each example shows how to trust it: `--cacert` for curl, `NODE_EXTRA_CA_CERTS` for Node-based MCP clients, an SSL context in Python, the certificate setting in Postman, and the *Ignore SSL issues* option in n8n. Set `domain_name` in Terraform for a publicly trusted certificate. The ALB hostname also changes on every fresh deploy, while a domain stays fixed.
+> **No domain yet?** The ALB serves a self-signed certificate. Each example shows how to trust it: `--cacert` for curl, `NODE_EXTRA_CA_CERTS` for Node-based MCP clients, an SSL context in Python, the certificate setting in Postman, and *Ignore SSL Issues* on n8n's HTTP Request node. Some clients cannot skip the check at all, such as n8n's MCP node and desktop MCP apps. For those, deploy with a domain to get a publicly trusted certificate. The ALB hostname also changes on every fresh deploy, while a domain stays fixed.
+>
+> ```bash
+> python -m chkpmcpeks deploy --domain mcp.example.com
+> ```

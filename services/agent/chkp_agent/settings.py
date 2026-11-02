@@ -54,6 +54,10 @@ class Settings:
     azure_endpoint: str = field(default_factory=lambda: _env("AZURE_OPENAI_ENDPOINT"))
     azure_api_key: str = field(default_factory=lambda: _env("AZURE_OPENAI_API_KEY"))
     azure_api_version: str = field(default_factory=lambda: _env("AZURE_OPENAI_API_VERSION", "2024-10-21"))
+    anthropic_api_key: str = field(default_factory=lambda: _env("ANTHROPIC_API_KEY"))
+    anthropic_base_url: str = field(default_factory=lambda: _env("ANTHROPIC_BASE_URL"))
+    anthropic_fallbacks: bool = field(default_factory=lambda: _bool("ANTHROPIC_FALLBACKS", True))
+    llm_effort: str = field(default_factory=lambda: _env("LLM_EFFORT", "medium"))   # Anthropic API only
     max_turns: int = field(default_factory=lambda: _int("MAX_TURNS", 12))
     max_tokens: int = field(default_factory=lambda: _int("MAX_TOKENS", 2048))
     tool_result_chars: int = field(default_factory=lambda: _int("TOOL_RESULT_CHARS", 6000))

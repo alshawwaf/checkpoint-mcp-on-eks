@@ -2,21 +2,41 @@
   "name": "Check Point · Ask the security-ops agent",
   "nodes": [
     {
-      "parameters": {"options": {}},
+      "parameters": {
+        "options": {}
+      },
       "id": "6f3c1d2e-0001-4a00-9000-000000000001",
       "name": "When chat message received",
       "type": "@n8n/n8n-nodes-langchain.chatTrigger",
       "typeVersion": 1.1,
-      "position": [0, 300],
+      "position": [
+        0,
+        300
+      ],
       "webhookId": "chkp-ask-agent"
     },
     {
       "parameters": {
         "assignments": {
           "assignments": [
-            {"id": "c1", "name": "baseUrl", "value": "https://<your-host>", "type": "string"},
-            {"id": "c2", "name": "tokenUrl", "value": "https://<domain>.auth.us-east-1.amazoncognito.com/oauth2/token", "type": "string"},
-            {"id": "c3", "name": "scope", "value": "chkp-mcp/invoke", "type": "string"}
+            {
+              "id": "c1",
+              "name": "baseUrl",
+              "value": "https://<your-host>",
+              "type": "string"
+            },
+            {
+              "id": "c2",
+              "name": "tokenUrl",
+              "value": "https://<domain>.auth.us-east-1.amazoncognito.com/oauth2/token",
+              "type": "string"
+            },
+            {
+              "id": "c3",
+              "name": "scope",
+              "value": "chkp-mcp/invoke",
+              "type": "string"
+            }
           ]
         },
         "includeOtherFields": true,
@@ -26,7 +46,10 @@
       "name": "Config",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [220, 300]
+      "position": [
+        220,
+        300
+      ]
     },
     {
       "parameters": {
@@ -38,8 +61,14 @@
         "contentType": "form-urlencoded",
         "bodyParameters": {
           "parameters": [
-            {"name": "grant_type", "value": "client_credentials"},
-            {"name": "scope", "value": "={{ $json.scope }}"}
+            {
+              "name": "grant_type",
+              "value": "client_credentials"
+            },
+            {
+              "name": "scope",
+              "value": "={{ $json.scope }}"
+            }
           ]
         },
         "options": {}
@@ -48,7 +77,10 @@
       "name": "Get Cognito token",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [440, 300]
+      "position": [
+        440,
+        300
+      ]
     },
     {
       "parameters": {
@@ -56,25 +88,40 @@
         "url": "={{ $('Config').item.json.baseUrl }}/v1/chat",
         "sendHeaders": true,
         "headerParameters": {
-          "parameters": [{"name": "Authorization", "value": "=Bearer {{ $json.access_token }}"}]
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            }
+          ]
         },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ prompt: $('When chat message received').item.json.chatInput }) }}",
-        "options": {"allowUnauthorizedCerts": true, "timeout": 180000}
+        "options": {
+          "allowUnauthorizedCerts": false,
+          "timeout": 180000
+        }
       },
       "id": "6f3c1d2e-0004-4a00-9000-000000000004",
       "name": "Ask the Check Point agent",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [660, 300]
+      "position": [
+        660,
+        300
+      ]
     },
     {
       "parameters": {
         "assignments": {
           "assignments": [
-            {"id": "o1", "name": "output", "type": "string",
-             "value": "={{ $json.result }}\n\n— {{ $json.model }} · tools: {{ $json.tool_calls.map(t => t.name).join(', ') || 'none' }} · {{ $json.cache_hit_pct }}% of input from cache"}
+            {
+              "id": "o1",
+              "name": "output",
+              "type": "string",
+              "value": "={{ $json.result }}\n\n— {{ $json.model }} · tools: {{ $json.tool_calls.map(t => t.name).join(', ') || 'none' }} · {{ $json.cache_hit_pct }}% of input from cache"
+            }
           ]
         },
         "options": {}
@@ -83,12 +130,15 @@
       "name": "Answer",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [880, 300]
+      "position": [
+        880,
+        300
+      ]
     },
     {
       "parameters": {
-        "content": "## Ask the Check Point security-ops agent\nChat → Cognito token → `POST /v1/chat` on the EKS agent → answer.\nThe agent picks the Check Point MCP tools itself and answers from real tool output.\n\n**Setup (once)**\n1. **Config**: set `baseUrl` and `tokenUrl` from `python -m chkpmcpeks endpoints`.\n2. **Get Cognito token**: create a *Basic Auth* credential — user = client id, password = client secret (`chkpmcpeks endpoints --reveal-secret`).\n3. Open the chat and ask: *What is the reputation of https://www.checkpoint.com?*\n\n*Ignore SSL Issues* is on only because the demo ALB uses a self-signed certificate — turn it off once you set a real domain.",
-        "height": 300,
+        "content": "## Ask the Check Point security-ops agent\nChat → Cognito token → `POST /v1/chat` on the EKS agent → answer.\nThe agent picks the Check Point MCP tools itself and answers from real tool output.\n\n**Setup (once)**\n1. **Config**: set `baseUrl` and `tokenUrl` from `python -m chkpmcpeks endpoints`.\n2. **Get Cognito token**: create a *Basic Auth* credential — user = client id, password = client secret (`chkpmcpeks endpoints --reveal-secret`).\n3. Open the chat and ask: *What is the reputation of https://www.checkpoint.com?*\n\nWith the self-signed demo certificate (no domain), turn on *Ignore SSL Issues* in **Ask the Check Point agent** — and turn it off again once a real domain is set.",
+        "height": 380,
         "width": 520,
         "color": 7
       },
@@ -96,15 +146,60 @@
       "name": "About this workflow",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [-40, -60]
+      "position": [
+        -40,
+        -500
+      ]
     }
   ],
   "connections": {
-    "When chat message received": {"main": [[{"node": "Config", "type": "main", "index": 0}]]},
-    "Config": {"main": [[{"node": "Get Cognito token", "type": "main", "index": 0}]]},
-    "Get Cognito token": {"main": [[{"node": "Ask the Check Point agent", "type": "main", "index": 0}]]},
-    "Ask the Check Point agent": {"main": [[{"node": "Answer", "type": "main", "index": 0}]]}
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Get Cognito token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Cognito token": {
+      "main": [
+        [
+          {
+            "node": "Ask the Check Point agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask the Check Point agent": {
+      "main": [
+        [
+          {
+            "node": "Answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "settings": {"executionOrder": "v1"},
+  "settings": {
+    "executionOrder": "v1"
+  },
   "pinData": {}
 }

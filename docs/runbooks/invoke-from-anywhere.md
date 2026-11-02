@@ -4,13 +4,13 @@ Both endpoints sit behind the same ALB and accept a Cognito **client-credentials
 
 ## Get a token
 
-The client secret lives in Cognito. Read it once, store it in your tool's secret store, and never paste it into chat or tickets.
+The client secret lives in Cognito. Print it once and store it in your tool's secret store. Never paste it into chat or tickets.
 
 ```bash
-python -c "import boto3,sys; c=boto3.client('cognito-idp'); print(c.describe_user_pool_client(UserPoolId=sys.argv[1], ClientId=sys.argv[2])['UserPoolClient']['ClientSecret'])" <pool-id> <client-id>
+python -m chkpmcpeks endpoints --reveal-secret
 ```
 
-`deploy` prints the pool id and client id. Then request a token:
+`--copy-secret` puts it on the clipboard instead of printing it. Then request a token:
 
 ```bash
 curl -s -u "$CLIENT_ID:$CLIENT_SECRET" -d "grant_type=client_credentials&scope=chkp-mcp/invoke" "$TOKEN_URL"
