@@ -25,7 +25,11 @@ Put the client secret only in an n8n credential. Never put it in a workflow fiel
 
 The **Answer** node appends the model, the tools the agent called and the cache hit rate to each reply.
 
+<img src="../../docs/img/screenshots/n8n-ask-agent.png" width="760" alt="Workflow 1 after a run: every node green, and the answer that checkpoint.com is clean with the tool and cache line">
+
 ## 2 · n8n AI Agent with Check Point MCP tools
+
+<img src="../../docs/img/screenshots/n8n-ai-agent-mcp-canvas.png" width="620" alt="Workflow 2: chat trigger, Refresh gateway token, the AI Agent with Claude, an OpenAI fallback, memory and the Check Point MCP gateway tool">
 
 1. Create an **MCP OAuth2** credential with these settings:
 
@@ -37,6 +41,8 @@ The **Answer** node appends the model, the tools the agent called and the cache 
    | Client ID / Client Secret | from `endpoints --reveal-secret` |
    | Scope | `chkp-mcp/invoke` |
    | Authentication | Header |
+
+   <img src="../../docs/img/screenshots/n8n-mcp-oauth2-credential.png" width="460" alt="The MCP OAuth2 credential: dynamic client registration off, grant type Client Credentials, token URL and client id">
 
 2. Select that credential in both **Refresh gateway token** and **Check Point MCP gateway**. Set both URLs to `CHKP_MCP_URL`.
 3. Select an Anthropic credential in **Claude (main)** and an OpenAI credential in **OpenAI (fallback)**. Any tool-calling chat model works in either slot.

@@ -77,6 +77,8 @@ Prompt caching, streaming and token telemetry are built in. The CLI, curl, Postm
 | **Delivery** | Terraform for AWS, one Helm chart for the workloads (GitOps-ready), images built on CodeBuild or GitHub Actions (OIDC). |
 | **Teardown** | `destroy` removes every billable resource in the right order and proves it with a tag scan. |
 
+<p align="center"><img src="docs/img/screenshots/kubectl-workloads.png" width="760" alt="Two Graviton c7g nodes, nine MCP server pods, two gateway and two agent pods, all running, with CPU autoscalers"></p>
+
 Why EKS rather than Bedrock AgentCore, and when AgentCore is still the better pick: **[docs/why-eks-vs-agentcore.md](docs/why-eks-vs-agentcore.md)**.
 
 ---
@@ -152,6 +154,10 @@ python -m chkpmcpeks chat "what is the reputation of https://example.com?"
 ```
 
 The answer streams, every tool call is shown, and each run ends with a token and cache line.
+
+<p align="center"><img src="docs/img/screenshots/cli-chat.png" width="760" alt="chkpmcpeks chat calling reputationservice_reputation_url and answering that checkpoint.com is clean"></p>
+
+Check the whole stack at any time with `python -m chkpmcpeks status`. It shows each server's tool count through the gateway; see [the CLI example](examples/cli/README.md#check-the-stack).
 
 ### 7. Tear down
 

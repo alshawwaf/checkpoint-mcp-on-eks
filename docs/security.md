@@ -46,6 +46,12 @@ internet ──TLS──► ALB ──► agentgateway ──► MCP server pods
 - The EKS API endpoint is public with `0.0.0.0/0` by default for the same reason. Set `endpoint_public_access_cidrs` to your network.
 - With no domain configured, the ALB uses a self-signed certificate. The CLI verifies it against the exported PEM, but desktop MCP clients will refuse it. Use `domain_name` for anything beyond a demo.
 
+## NetworkPolicy enforcement, tested
+
+The same checks run from inside the pods on a live stack. A server reaches the internet on 443 and nothing else; the agent reaches the gateway but no server.
+
+<img src="img/screenshots/networkpolicy-test.png" width="760" alt="From a server pod, other servers, the gateway, the agent and instance metadata are blocked and the internet on 443 works; from the agent pod, the gateway answers 401 and the servers are blocked">
+
 ## Reporting a vulnerability
 
 See [SECURITY.md](../SECURITY.md).

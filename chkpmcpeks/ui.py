@@ -3,7 +3,7 @@
 Deliberately simpler than the AgentCore project's full-screen UI: a numbered
 step checklist with per-step timers, colour when stdout is a terminal, and a
 plain transcript tee'd to ~/.chkpmcpeks/logs/ (ANSI stripped) for every run.
-Opt out of colour with --plain, CHKP_UI=plain, or NO_COLOR.
+Opt out of colour with --plain, CHKP_UI=plain, or NO_COLOR; force it with CHKP_UI=color.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ RESET = "\x1b[0m"
 def color_wanted():
     if FORCE_PLAIN or os.environ.get("CHKP_UI") == "plain" or os.environ.get("NO_COLOR"):
         return False
-    return sys.stdout.isatty()
+    return os.environ.get("CHKP_UI") == "color" or sys.stdout.isatty()
 
 
 def c(color, text):

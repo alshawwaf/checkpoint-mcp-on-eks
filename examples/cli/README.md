@@ -10,15 +10,7 @@ python -m chkpmcpeks chat "what is the reputation of https://www.checkpoint.com?
 
 The output looks like this. The model is Amazon Nova until Anthropic's Bedrock use-case form is approved, after which the agent switches to Claude automatically.
 
-```
- ◆ chkpmcpeks chat  https://k8s-chkpmcp-....us-east-1.elb.amazonaws.com/v1/chat
- Amazon Nova on Bedrock · us.amazon.nova-2-lite-v1:0 · 112 tools · prompt caching on
- → tool  reputationservice_url_reputation  {"url": "https://www.checkpoint.com"}
-        ✓ ok  {"risk": 0, "classification": "Benign", ...}
- assistant  https://www.checkpoint.com is classified Benign with a risk score of 0 ...
- tokens  3,120 in  ·  95 out  ·  2,048 cache-read  ·  40% of input from cache  ·  4.1s
- ✔ done
-```
+<img src="../../docs/img/screenshots/cli-chat.png" width="760" alt="chkpmcpeks chat output: one reputationservice tool call, the answer, and the token and cache line">
 
 More questions, as many as you like:
 
@@ -57,3 +49,22 @@ python -m chkpmcpeks status
 ```
 
 This lists every pod, confirms an unauthenticated request is refused, and prints the tool catalog per server, fetched through the gateway.
+
+## Check the stack
+
+```bash
+python -m chkpmcpeks status
+```
+
+It checks the pods, the public endpoint and its certificate, that an unauthenticated request is refused, and lists the tools each server exposes through the gateway.
+
+<img src="../../docs/img/screenshots/cli-status.png" width="760" alt="chkpmcpeks status: nine servers running, endpoint TLS verified, 401 without a token, 139 tools through the gateway">
+
+## Endpoint values for other tools
+
+```bash
+python -m chkpmcpeks endpoints
+```
+
+<img src="../../docs/img/screenshots/cli-endpoints.png" width="760" alt="chkpmcpeks endpoints: base, MCP, agent and token URLs, client id and scope; the secret stays hidden">
+

@@ -21,6 +21,8 @@ The domain is remembered for later deploys. To go back to the self-signed certif
 1. A `CNAME` that proves you own the domain, so ACM can issue the certificate. Keep it in place: ACM uses it to renew, and later deploys of the same domain reuse it.
 2. A `CNAME` from your domain to the ALB hostname. On Cloudflare, set it to **DNS only**, not proxied, so TLS ends at the ALB with the ACM certificate.
 
+<img src="../img/screenshots/cloudflare-dns-records.png" width="740" alt="Cloudflare DNS: the ACM validation CNAME and the mcp-eks CNAME to the ALB, both DNS only">
+
 If the wait times out, add the records and run `deploy` again. Every step converges.
 
 ## Things to know
