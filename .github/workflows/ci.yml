@@ -41,7 +41,9 @@ jobs:
           mkdir -p spike/bin && cd spike/bin
           base=https://github.com/agentgateway/agentgateway/releases/download/${AGENTGATEWAY_VERSION}
           curl -fsSLO "$base/agentgateway-linux-amd64" && curl -fsSLO "$base/agentgateway-linux-amd64.sha256"
-          sha256sum -c agentgateway-linux-amd64.sha256 && chmod +x agentgateway-linux-amd64
+          # the release lists the file under its build path (outputs/...); check the hash only
+          echo "$(cut -d" " -f1 agentgateway-linux-amd64.sha256)  agentgateway-linux-amd64" | sha256sum -c -
+          chmod +x agentgateway-linux-amd64
       - run: ruff check .
       - run: ruff format --check chkpmcpeks services tests || true   # advisory
       - run: pytest -q
