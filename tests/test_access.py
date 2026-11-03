@@ -82,3 +82,47 @@ def test_terraform_security_defaults_stay_hardened():
     assert re.search(r"enable_cluster_creator_admin_permissions\s*=\s*false", main)
     assert re.search(r"endpoint_public_access\s*=\s*var\.cluster_endpoint_public_access\b", main)
     assert re.search(r'authentication_mode\s*=\s*"API"', main)
+
+
+class _FakeSession:
+    """Answers like real AWS: ids in `alive` exist, everything else is NotFound."""
+
+    def __init__(self, alive=(), terminated=()):
+        self.alive, self.terminated = set(alive), set(terminated)
+
+    def client(self, name, region_name=None):
+        from botocore.exceptions import ClientError
+
+        def nf(code):
+            raise ClientError({"Error": {"Code": code, "Message": "x"}}, "Describe")
+
+        alive, terminated = self.alive, self.terminated
+
+        class C:
+            def describe_instances(self, InstanceIds):
+                i = InstanceIds[0]
+                if i in terminated:
+                    return {"Reservations": [{"Instances": [{"State": {"Name": "terminated"}}]}]}
+                return {"Reservations": [{"Instances": [{"State": {"Name": "running"}}]}]} if i in alive \
+                    else nf("InvalidInstanceID.NotFound")
+
+            def describe_security_groups(self, GroupIds):
+                return {} if GroupIds[0] in alive else nf("InvalidGroup.NotFound")
+
+            def describe_user_pool(self, UserPoolId):
+                return {} if UserPoolId in alive else nf("ResourceNotFoundException")
+
+        return C()
+
+
+def test_leftover_scan_hides_only_confirmed_deletions():
+    from chkpmcpeks.destroy import still_exists
+
+    a = "arn:aws:ec2:us-east-1:123456789012:"
+    s = _FakeSession(alive={"sg-live", "us-east-1_live"}, terminated={"i-gone"})
+    assert still_exists(s, "us-east-1", a + "instance/i-gone") is False
+    assert still_exists(s, "us-east-1", a + "security-group/sg-dead") is False
+    assert still_exists(s, "us-east-1", a + "security-group/sg-live") is True
+    assert still_exists(s, "us-east-1", "arn:aws:cognito-idp:us-east-1:123456789012:userpool/us-east-1_live") is True
+    # a type the scan cannot check is always reported, never hidden
+    assert still_exists(s, "us-east-1", "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/x/1") is True

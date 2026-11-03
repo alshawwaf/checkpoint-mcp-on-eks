@@ -97,16 +97,62 @@ def _delete_log_groups(session, region, cluster):
     log(f"  deleted {len(gone)} log group(s)" + (f": {', '.join(gone)}" if gone else ""))
 
 
+_GONE_CODES = {"InvalidInstanceID.NotFound", "InvalidVolume.NotFound", "InvalidGroup.NotFound",
+               "InvalidSecurityGroupRuleId.NotFound", "InvalidSubnetID.NotFound", "InvalidVpcID.NotFound",
+               "NatGatewayNotFound", "InvalidAllocationID.NotFound", "ResourceNotFoundException"}
+
+
+def still_exists(session, region, arn):
+    """Ask the owning service whether a resource the tagging index still lists is really
+    there. The index lags deletions by minutes, so a just-destroyed stack always shows a few
+    stale entries. Returns False only when the service confirms the resource is gone;
+    unknown types count as present, so nothing real is ever hidden."""
+    service, resource = arn.split(":")[2], arn.split(":", 5)[5]
+    kind, _, rid = resource.partition("/")
+    try:
+        if service == "ec2":
+            ec2 = session.client("ec2", region_name=region)
+            if kind == "instance":
+                inst = ec2.describe_instances(InstanceIds=[rid])["Reservations"][0]["Instances"][0]
+                return inst["State"]["Name"] not in ("terminated", "shutting-down")
+            if kind == "natgateway":
+                return ec2.describe_nat_gateways(NatGatewayIds=[rid])["NatGateways"][0]["State"] not in ("deleted", "deleting")
+            calls = {"volume": lambda: ec2.describe_volumes(VolumeIds=[rid]),
+                     "security-group": lambda: ec2.describe_security_groups(GroupIds=[rid]),
+                     "security-group-rule": lambda: ec2.describe_security_group_rules(SecurityGroupRuleIds=[rid]),
+                     "subnet": lambda: ec2.describe_subnets(SubnetIds=[rid]),
+                     "vpc": lambda: ec2.describe_vpcs(VpcIds=[rid]),
+                     "elastic-ip": lambda: ec2.describe_addresses(AllocationIds=[rid])}
+            if kind in calls:
+                calls[kind]()
+                return True
+        elif service == "cognito-idp" and kind == "userpool":
+            session.client("cognito-idp", region_name=region).describe_user_pool(UserPoolId=rid)
+            return True
+        elif service == "eks" and kind in ("cluster", "podidentityassociation"):
+            session.client("eks", region_name=region).describe_cluster(name=rid.split("/")[0])
+            return True
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") in _GONE_CODES:
+            return False
+        raise
+    except (IndexError, KeyError):
+        return False
+    return True
+
+
 def leftovers(session, cfg):
+    """(present, stale): resources still tagged for this stack, split into ones that really
+    exist and index entries for resources the owning service confirms are deleted."""
     tag = session.client("resourcegroupstaggingapi", region_name=cfg.region)
-    found = []
+    present, stale = [], []
     for r in paginate(tag.get_resources, TagFilters=[{"Key": "project", "Values": ["chkp-mcp-eks"]},
                                                       {"Key": "stack", "Values": [cfg.stack_tag]}]):
         arn = r["ResourceARN"]
         if ":secret:chkp/" in arn:
             continue   # Check Point credential secrets are kept by design
-        found.append(arn)
-    return found
+        (present if still_exists(session, cfg.region, arn) else stale).append(arn)
+    return present, stale
 
 
 def run(cfg, session, args, profile=None):
@@ -178,14 +224,17 @@ def run(cfg, session, args, profile=None):
         terraform.destroy("build", cfg, profile)
     rep.begin("Leftover scan")
     time.sleep(5)
-    left = leftovers(session, cfg)
+    left, stale = leftovers(session, cfg)
+    if stale:
+        log(f"  {len(stale)} stale tag-index entr{'y' if len(stale) == 1 else 'ies'} for resources the "
+            "owning services confirm are deleted (the index catches up within minutes)")
     if left:
         ok = False
-        log("  still tagged project=chkp-mcp-eks (the tagging API can lag a few minutes after deletion):")
+        log("  STILL PRESENT, tagged project=chkp-mcp-eks:")
         for arn in left:
             log(f"    {arn}")
         rep.warn()
     else:
-        log("  nothing tagged project=chkp-mcp-eks remains (chkp/<server> secrets kept by design)")
+        log("  nothing of this stack remains (chkp/<server> secrets kept by design)")
     rep.close(ok, ["  Stack removed." if ok else "  Re-run `chkpmcpeks destroy` in a few minutes to confirm."])
     return 0 if ok else 1
