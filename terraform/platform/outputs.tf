@@ -18,6 +18,24 @@ output "vpc_cidr" {
   value = var.vpc_cidr
 }
 
+output "cluster_endpoint" {
+  description = "Kubernetes API endpoint (private unless cluster_endpoint_public_access is on)"
+  value       = module.eks.cluster_endpoint
+}
+
+output "cluster_endpoint_public_access" {
+  value = var.cluster_endpoint_public_access
+}
+
+output "api_access_instance_id" {
+  description = "SSM-managed host the CLI port-forwards through to the private API endpoint"
+  value       = var.enable_api_access_host ? aws_instance.api_access[0].id : ""
+}
+
+output "cluster_admin_principal_arns" {
+  value = var.cluster_admin_principal_arns
+}
+
 output "public_subnet_cidrs" {
   description = "Where the ALB lives; the only sources allowed to reach the agent and gateway pods"
   value       = module.vpc.public_subnets_cidr_blocks

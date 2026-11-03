@@ -20,10 +20,9 @@ from dataclasses import replace
 
 import yaml
 
-from . import build, config, creds, terraform, ui, verify
+from . import build, config, creds, terraform, tunnel, ui, verify
 from .awsutil import caller_identity, log
 from .kube import CHART, PLATFORM_MANIFEST
-from .kube_auth import write_kubeconfig
 from .stack import Stack, wait_https
 
 ROOT = terraform.ROOT
@@ -115,12 +114,63 @@ def _confirm(cfg, already):
         return False
 
 
+def iam_principal_arn(arn):
+    """sts assumed-role session ARN -> the role ARN an EKS access entry needs. Pure; tested."""
+    if ":assumed-role/" in arn:
+        head, rest = arn.split(":assumed-role/", 1)
+        return head.replace(":sts::", ":iam::") + ":role/" + rest.split("/", 1)[0]
+    return arn
+
+
+def resolve_access(cfg, session, args):
+    """Settle who administers the cluster and whether its API is public, before any
+    billable step. Choices are saved per stack and reused by later deploys."""
+    settings = terraform.stack_settings(cfg.prefix)
+    if getattr(args, "admin_arn", None):
+        terraform.save_stack_settings(cfg.prefix, cluster_admin_principal_arns=[iam_principal_arn(a) for a in args.admin_arn])
+    elif not settings.get("cluster_admin_principal_arns"):
+        me = iam_principal_arn(caller_identity(session, cfg.region)["Arn"])
+        msg = ("\nCluster access is explicit: only the IAM principals you list get Kubernetes admin, through an\n"
+               "EKS access entry (nobody is added implicitly). kubectl and helm in this CLI run as you, so you\n"
+               f"need to be on that list:\n    {me}\n")
+        if args.yes or not sys.stdin.isatty():
+            log(msg + f"Re-run with  --admin-arn {me}  (repeat the flag for more principals).")
+            return False
+        log(msg)
+        try:
+            ok = input("Grant cluster-admin to this principal? [y/N] ").strip().lower() in ("y", "yes")
+        except EOFError:
+            ok = False
+        if not ok:
+            log("Nothing deployed. Pass --admin-arn with the role or user that should administer the cluster.")
+            return False
+        terraform.save_stack_settings(cfg.prefix, cluster_admin_principal_arns=[me])
+    if getattr(args, "public_endpoint", False):
+        cidrs = list(args.public_endpoint_cidr or [])
+        if not cidrs:
+            ip = tunnel.public_ip()
+            if not ip:
+                log("Could not detect this machine's public IP; pass --public-endpoint-cidr.")
+                return False
+            cidrs = [f"{ip}/32"]
+            log(f"  public API endpoint: only {cidrs[0]} (this machine, detected now). A demo convenience, "
+                "not production: list your own network with --public-endpoint-cidr.")
+        terraform.save_stack_settings(cfg.prefix, cluster_endpoint_public_access=True,
+                                      cluster_endpoint_public_access_cidrs=cidrs)
+    elif getattr(args, "private_endpoint", False):
+        terraform.save_stack_settings(cfg.prefix, cluster_endpoint_public_access=False,
+                                      cluster_endpoint_public_access_cidrs=[])
+    return True
+
+
 def run(cfg, session, args, profile=None):
     servers = config.parse_servers(args.servers) or cfg.servers
     cfg = replace(cfg, servers=tuple(servers))
     cfg.validate()
     st = Stack(cfg, session, profile)
     if not (args.yes or _confirm(cfg, st.deployed)):
+        return 1
+    if not resolve_access(cfg, session, args):
         return 1
 
     rep = ui.Reporter("deploy", STEPS, context=f"{cfg.region} · {len(servers)} servers · {cfg.cluster_name}")
@@ -173,7 +223,8 @@ def _deploy(cfg, session, args, profile, rep):
         _wait_certificate(session, cfg.region, out)
 
     rep.begin("Cluster access")
-    path = write_kubeconfig(session, cfg.region, out["cluster_name"], profile=profile)
+    path = tunnel.connect(session, cfg.region, out["cluster_name"], profile, out.get("api_access_instance_id", ""))
+    st._api_ready = True
     kube = st.kube
     log(f"  kubeconfig: {path}")
     if not kube.wait_api():
@@ -299,7 +350,6 @@ def _nodepool_exists(cfg, session, profile):
     if not st.deployed:
         return False
     try:
-        write_kubeconfig(session, cfg.region, st.out["cluster_name"], profile=profile)
         return bool(st.kube.get_json("nodepool", "graviton").get("metadata"))
     except Exception:  # noqa: BLE001 -- unknown means "not ready": the safe ordering
         return False

@@ -43,7 +43,8 @@ internet ──TLS──► ALB ──► agentgateway ──► MCP server pods
 ## Exposure
 
 - The ALB is internet-facing so demos work from anywhere. Restrict it with the Terraform variable `alb_inbound_cidrs`, or set `ingress.scheme: internal` for a private deployment.
-- The EKS API endpoint is public with `0.0.0.0/0` by default for the same reason. Set `endpoint_public_access_cidrs` to your network.
+- The EKS API endpoint is private. The CLI reaches it through an SSM port-forward on an access host with no inbound rules and no SSH key. A public endpoint is opt-in (`cluster_endpoint_public_access`), and `cluster_endpoint_public_access_cidrs` then has no default.
+- Nobody gets Kubernetes access implicitly. Cluster-admin is granted only to the ARNs in `cluster_admin_principal_arns`, through EKS access entries, with authentication mode `API`. Revoke access by removing an ARN and re-running `deploy`.
 - With no domain configured, the ALB uses a self-signed certificate. The CLI verifies it against the exported PEM, but desktop MCP clients will refuse it. Use `domain_name` for anything beyond a demo.
 
 ## NetworkPolicy enforcement, tested

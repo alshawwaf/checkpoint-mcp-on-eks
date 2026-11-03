@@ -9,6 +9,7 @@
     python -m chkpmcpeks endpoints [--format sh|ps1]  # URLs/client id for curl, Postman, n8n, MCP clients
     python -m chkpmcpeks token                        # a fresh bearer token
     python -m chkpmcpeks kubeconfig                   # write a kubeconfig for this stack
+    python -m chkpmcpeks tunnel                       # hold the SSM tunnel open for your own kubectl
     python -m chkpmcpeks destroy [--yes]              # remove everything this stack created
 
 Global options (before or after the subcommand): --region, --prefix, --profile, --plain.
@@ -65,6 +66,16 @@ def build_parser():
                      help="agent LLM (remembered): bedrock (default), anthropic (Claude API key), azure, openai")
     dep.add_argument("--llm-model", default=None,
                      help="agent model id (remembered); '' = provider default (Bedrock auto-select, claude-opus-5-5)")
+    dep.add_argument("--admin-arn", action="append", default=None, metavar="ARN",
+                     help="IAM role/user that gets cluster-admin via an EKS access entry (repeatable; remembered)")
+    pub = dep.add_mutually_exclusive_group()
+    pub.add_argument("--public-endpoint", action="store_true",
+                     help="also expose the Kubernetes API publicly, limited to --public-endpoint-cidr "
+                          "(default: this machine's IP as a /32, for demos)")
+    pub.add_argument("--private-endpoint", action="store_true",
+                     help="go back to the private-only Kubernetes API (the default)")
+    dep.add_argument("--public-endpoint-cidr", action="append", default=None, metavar="CIDR",
+                     help="network allowed to reach the public API endpoint (repeatable)")
     dep.add_argument("--yes", action="store_true", help="do not ask before creating billable resources")
 
     b = sub.add_parser("build", parents=[common], help="build images on CodeBuild into ECR")
@@ -92,6 +103,8 @@ def build_parser():
     sub.add_parser("token", parents=[common], help="print a fresh bearer token (60 min)")
 
     sub.add_parser("kubeconfig", parents=[common], help="write a kubeconfig for this stack's cluster")
+    sub.add_parser("tunnel", parents=[common],
+                   help="hold an SSM tunnel to the private Kubernetes API open for your own kubectl")
 
     t = sub.add_parser("eks-token", parents=[common], help=argparse.SUPPRESS)
     t.add_argument("--cluster", required=True)
@@ -155,12 +168,27 @@ def _main(argv=None):
         from . import doctor
 
         return doctor.run(cfg, session, probe_models=not args.no_model_probe)
-    if args.cmd == "kubeconfig":
-        from .kube_auth import write_kubeconfig
+    if args.cmd in ("kubeconfig", "tunnel"):
+        import time
 
-        path = write_kubeconfig(session, cfg.region, cfg.cluster_name, profile=profile)
+        from . import terraform, tunnel
+
+        out = terraform.outputs("platform", profile, cfg.prefix)
+        path = tunnel.connect(session, cfg.region, out.get("cluster_name") or cfg.cluster_name, profile,
+                              out.get("api_access_instance_id", ""))
         log(f"wrote {path}")
-        log("use it with:  set KUBECONFIG to that path (PowerShell: $env:KUBECONFIG=\"" + path + "\")")
+        log("use it with:  export KUBECONFIG=" + path + "   (PowerShell: $env:KUBECONFIG=\"" + path + "\")")
+        if tunnel._active.get(out.get("cluster_name") or cfg.cluster_name, {}).get("route") == "tunnel":
+            if args.cmd == "kubeconfig":
+                log("the API is private: this kubeconfig works only while a tunnel is open -- "
+                    "run `python -m chkpmcpeks tunnel` and keep it running")
+                return 0
+            log("tunnel open -- press Ctrl-C to close it")
+            try:
+                while True:
+                    time.sleep(3600)
+            except KeyboardInterrupt:
+                log("tunnel closed")
         return 0
 
     # Commands implemented in their own modules (added phase by phase).

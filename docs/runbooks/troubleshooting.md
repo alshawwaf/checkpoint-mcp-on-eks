@@ -3,10 +3,17 @@
 Start with `python -m chkpmcpeks status`. It is read-only and reports every pod, the ALB, the 401 check, and the tool catalog. Then point kubectl at the stack:
 
 ```bash
-python -m chkpmcpeks kubeconfig
+python -m chkpmcpeks tunnel
 ```
 
-On PowerShell, set `$env:KUBECONFIG` to the printed path. On macOS or Linux, run `export KUBECONFIG=...`.
+The Kubernetes API is private, so keep that command running: it holds an SSM tunnel open. In another terminal, point `KUBECONFIG` at the printed path. On PowerShell, set `$env:KUBECONFIG`. On macOS or Linux, run `export KUBECONFIG=...`.
+
+If the tunnel does not open:
+
+- **`session-manager-plugin not found`**: install it (see the README prerequisites), then run `python -m chkpmcpeks doctor`.
+- **`not registered with Systems Manager yet`**: the access host is still booting. Wait a minute and retry.
+- **`AccessDeniedException` on `StartSession`**: your IAM identity needs `ssm:StartSession` on the access host.
+- **`Unauthorized` from kubectl through the tunnel**: your identity is not in `cluster_admin_principal_arns`. Re-run `deploy --admin-arn <your-role-arn>`.
 
 | Symptom | Likely cause | Check / fix |
 |---|---|---|

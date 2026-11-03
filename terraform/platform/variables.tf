@@ -39,10 +39,43 @@ variable "single_nat_gateway" {
   default     = true
 }
 
-variable "endpoint_public_access_cidrs" {
-  description = "CIDRs allowed to reach the public EKS API endpoint. Restrict this to your network."
+variable "cluster_endpoint_public_access" {
+  description = "Expose the EKS API on a public endpoint as well as the private one. Off by default: the CLI reaches the private endpoint through the SSM access host."
+  type        = bool
+  default     = false
+}
+
+variable "cluster_endpoint_public_access_cidrs" {
+  description = "CIDRs allowed to reach the public EKS API endpoint when it is enabled. No default: list your own network (the CLI fills in your current IP as a /32 for demos)."
   type        = list(string)
-  default     = ["0.0.0.0/0"]
+  default     = []
+
+  validation {
+    condition     = !var.cluster_endpoint_public_access || length(var.cluster_endpoint_public_access_cidrs) > 0
+    error_message = "The public API endpoint is enabled, so cluster_endpoint_public_access_cidrs must list the networks allowed to reach it."
+  }
+}
+
+variable "cluster_admin_principal_arns" {
+  description = "IAM role or user ARNs that get cluster-admin through an EKS access entry: the people and pipelines that run kubectl and helm. Required; nobody is added implicitly."
+  type        = list(string)
+
+  validation {
+    condition     = length(var.cluster_admin_principal_arns) > 0 && alltrue([for a in var.cluster_admin_principal_arns : can(regex("^arn:aws[a-z-]*:iam::[0-9]{12}:(role|user)/.+$", a))])
+    error_message = "List at least one IAM role or user ARN, such as arn:aws:iam::123456789012:role/platform-admins. Use the role ARN, not an sts assumed-role session ARN."
+  }
+}
+
+variable "enable_api_access_host" {
+  description = "Create the small SSM-managed host the CLI port-forwards through to reach the private API endpoint. Turn off only if you reach the VPC another way (VPN, Direct Connect, an in-VPC runner)."
+  type        = bool
+  default     = true
+}
+
+variable "api_access_host_instance_type" {
+  description = "Instance type of the API access host. It only relays TCP, so the smallest Graviton size is enough."
+  type        = string
+  default     = "t4g.nano"
 }
 
 variable "alb_inbound_cidrs" {

@@ -68,9 +68,9 @@ Prompt caching, streaming and token telemetry are built in. The CLI, curl, Postm
 |---|---|
 | **Compute** | EKS Auto Mode with a Graviton (arm64) NodePool. AWS runs nodes, the ALB controller, the Pod Identity agent, CoreDNS and the CNI. |
 | **Ingress** | Application Load Balancer from the Auto Mode controller, ACM TLS, one hostname for `/mcp` and `/v1`. |
-| **Identity** | EKS Pod Identity, one IAM role per workload. MCP server pods hold **no** AWS credentials. |
+| **Identity** | EKS Pod Identity, one IAM role per workload. MCP server pods hold **no** AWS credentials. Cluster admins are listed explicitly in EKS access entries; nobody is added implicitly. |
 | **Secrets** | External Secrets Operator syncs the **same `chkp/<server>` secrets** the AgentCore project uses. Reloader restarts a pod when its secret rotates. |
-| **Network** | Private subnets, default-deny NetworkPolicies (only the gateway reaches a server), one NAT egress IP to allow-list on management servers. |
+| **Network** | Private Kubernetes API endpoint, reached through an SSM tunnel. Private subnets, default-deny NetworkPolicies (only the gateway reaches a server), one NAT egress IP to allow-list on management servers. |
 | **Pods** | Restricted Pod Security Standard, non-root, read-only root filesystem, all capabilities dropped, requests and limits, HPA, PDB. |
 | **Supply chain** | Images by digest, immutable tags, ECR scan on push, `npm install --ignore-scripts`, GitHub Actions pinned by SHA. |
 | **Observability** | CloudWatch Container Insights and JSON logs by default, Prometheus metrics and OTLP tracing ready. |
@@ -92,8 +92,9 @@ Why EKS rather than Bedrock AgentCore, and when AgentCore is still the better pi
 | Python ≥ 3.10, Git | python.org, git-scm.com | `brew install python git` | your package manager |
 | Terraform ≥ 1.10 | `scoop install terraform` | `brew install hashicorp/tap/terraform` | [install](https://developer.hashicorp.com/terraform/install) |
 | Helm, kubectl | `scoop install helm kubectl` | `brew install helm kubectl` | [helm](https://helm.sh/docs/intro/install/), [kubectl](https://kubernetes.io/docs/tasks/tools/) |
+| Session Manager plugin | `scoop bucket add extras; scoop install aws-session-manager-plugin` | `brew install --cask session-manager-plugin` | [install](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html) |
 
-AWS credentials come from the standard chain: profile, SSO, environment variables or an instance role. `--profile` works on every command. No AWS CLI and no local Docker are needed: images build on AWS CodeBuild, and the kubeconfig authenticates through the CLI itself.
+AWS credentials come from the standard chain: profile, SSO, environment variables or an instance role. `--profile` works on every command. No AWS CLI and no local Docker are needed: images build on AWS CodeBuild, the kubeconfig authenticates through the CLI itself, and the Session Manager plugin carries the CLI's traffic to the private Kubernetes API.
 
 ### 2. Get the code
 
@@ -129,7 +130,7 @@ It checks the tools, your AWS identity, which `chkp/<server>` secrets already ex
 python -m chkpmcpeks deploy
 ```
 
-It asks before creating billable resources and takes about 30–40 minutes the first time. It builds the images, applies Terraform (VPC, EKS Auto Mode, Cognito, Pod Identity, ACM), installs External Secrets and Reloader, deploys the Helm chart, waits for the ALB, and then verifies: an unauthenticated request must be refused, and `tools/list` must work through the gateway. Every step is idempotent, so re-run it after any interruption.
+It asks before creating billable resources, and asks which IAM principal administers the cluster (it offers your own identity; nothing is granted until you answer). In CI, pass `--admin-arn <role-arn>` instead. The first run takes about 30–40 minutes. It builds the images, applies Terraform (VPC, EKS Auto Mode, Cognito, Pod Identity, ACM), installs External Secrets and Reloader, deploys the Helm chart, waits for the ALB, and then verifies: an unauthenticated request must be refused, and `tools/list` must work through the gateway. Every step is idempotent, so re-run it after any interruption.
 
 Without a domain, the ALB serves a self-signed certificate. Desktop MCP apps and n8n's MCP node need a publicly trusted one, so add `--domain mcp.example.com`. See [serve it on your own domain](docs/runbooks/custom-domain.md) for the DNS records.
 
@@ -169,6 +170,23 @@ It removes everything this stack created, then scans for leftovers. The `chkp/<s
 
 ---
 
+## Security defaults
+
+The defaults follow AWS best practice for a cluster that holds security-tool credentials. Each one can be loosened for a throwaway demo, explicitly.
+
+| Default | Why | To loosen it for a demo |
+|---|---|---|
+| **The Kubernetes API endpoint is private.** The CLI reaches it through an SSM port-forward on a small access host in a private subnet. The host has no inbound rules, no SSH key and no Kubernetes credentials. | An internet-reachable API server is attack surface even with IAM auth in front, and AWS recommends keeping it private. The access host costs about USD 3 a month, and IAM decides who may open a session. | `deploy --public-endpoint` also opens a public endpoint, limited to this machine's IP as a /32. Use `--public-endpoint-cidr` to list your own networks; `--private-endpoint` closes it again. |
+| **No `0.0.0.0/0` for the public endpoint.** `cluster_endpoint_public_access_cidrs` has no default, and Terraform rejects an enabled public endpoint without one. | A world-open control plane is the default most often flagged in reviews. | Pass the CIDRs you want. The auto-detected /32 is a demo convenience, not a production setting. |
+| **No implicit cluster admin.** Whoever runs Terraform gets no Kubernetes access by default. `bootstrap_cluster_creator_admin_permissions` stays off, and only the ARNs in `cluster_admin_principal_arns` get cluster-admin, through EKS access entries. The authentication mode is `API`, with no `aws-auth` ConfigMap. | The implicit creator grant is invisible in code, tied to whoever ran the first apply, and hard to revoke. Explicit entries are reviewable and removable like any other resource. Terraform never calls the Kubernetes API, so it needs no Kubernetes permissions at all. | `deploy` offers your own identity once, and remembers what you choose. Use `--admin-arn` for a team role or a CI role, and repeat it for several. |
+| The public ALB accepts `0.0.0.0/0`. | MCP clients, n8n and Teams must reach it, and every request needs a Cognito token. | Restrict `alb_inbound_cidrs`, or make the ALB internal. |
+
+**What to put in `cluster_admin_principal_arns`.** List the role your platform team assumes and the role your pipeline deploys with. Avoid personal IAM users. Use the role ARN (`arn:aws:iam::<account>:role/<name>`), not an assumed-role session ARN; `deploy` converts one for you.
+
+**Reaching the private API yourself.** `chkpmcpeks status`, `creds apply` and `destroy` open the tunnel on their own. For your own `kubectl`, run `python -m chkpmcpeks tunnel` in one terminal and use the kubeconfig it prints. Teams with a VPN or Direct Connect can set `enable_api_access_host = false` and reach the private endpoint directly.
+
+---
+
 ## Server catalog
 
 | Server (`@chkp/…-mcp`) | Pinned | Credentials (own `chkp/<server>` secret) | Default |
@@ -198,12 +216,13 @@ Select servers with `--servers "reputation-service cloudguard-waf"`. `all` expan
 | Command | What it does |
 |---|---|
 | `chkpmcpeks doctor` | Read-only preflight: tools, AWS identity, existing secrets, callable Bedrock models. |
-| `chkpmcpeks deploy` | Everything, idempotently. Options: `--servers`, `--creds <file>`, `--skip-build`, `--yes`. |
+| `chkpmcpeks deploy` | Everything, idempotently. Options: `--servers`, `--creds <file>`, `--skip-build`, `--domain`, `--admin-arn`, `--public-endpoint` / `--private-endpoint`, `--llm-provider`, `--yes`. |
 | `chkpmcpeks build` | Images on CodeBuild into ECR; writes the digests the chart deploys. |
 | `chkpmcpeks status` | Read-only: pods, ALB, the 401 check, and the tool catalog through the gateway. |
 | `chkpmcpeks chat "…"` | Ask the agent; streams tool calls and the answer (`--model`, `--port-forward`). |
 | `chkpmcpeks creds template\|apply` | `chkp-credentials.env` to `chkp/<server>`, then re-sync and restart the affected pods. |
 | `chkpmcpeks kubeconfig` | Write a kubeconfig for this stack. It never touches `~/.kube/config`. |
+| `chkpmcpeks tunnel` | Hold the SSM tunnel to the private Kubernetes API open for your own `kubectl`. |
 | `chkpmcpeks destroy` | Remove everything this stack created (`--yes`, `--keep-images`). |
 
 Global options, accepted before or after the command: `--region`, `--prefix` (a second, independent stack), `--profile`, `--plain`.
@@ -245,6 +264,7 @@ Global options, accepted before or after the command: `--region`, `--prefix` (a 
   - [Helm](docs/adr/0005-workload-packaging.md)
   - [observability](docs/adr/0006-observability.md)
   - [images](docs/adr/0007-container-images.md)
+  - [private API and explicit cluster admins](docs/adr/0008-private-api-and-explicit-access.md)
 - [Alternatives](docs/alternatives/README.md): Python gateway, Keycloak, managed node groups, eksctl, CloudFront TLS
 - [Least-privilege deployer policy (sample)](docs/iam/deployer-policy.sample.json)
 

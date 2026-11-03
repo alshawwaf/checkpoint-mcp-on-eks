@@ -46,7 +46,7 @@ def run(cfg, session, probe_models=True):
         _line(bool(v), f"{mod} {v or 'not installed'}" + ("" if v or need else
               "  (needed for status/chat: pip install 'mcp>=2.3,<3')"), warn=not need)
         failures += need and not v
-    for name in ("terraform", "helm", "kubectl"):
+    for name in ("terraform", "helm", "kubectl", "session-manager-plugin"):
         ok, text = tools.describe_tool(name)
         _line(ok, text)
         failures += not ok

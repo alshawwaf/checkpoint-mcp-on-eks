@@ -1,4 +1,4 @@
-"""Locate and run the external tools the CLI drives (terraform, helm, kubectl).
+"""Locate and run the external tools the CLI drives (terraform, helm, kubectl, session-manager-plugin).
 
 Windows machines often carry an old binary earlier on PATH (for example a
 32-bit Terraform in Program Files) alongside a current one installed through
@@ -28,6 +28,11 @@ TOOLS = {
     "kubectl": ((1, 30, 0), ["version", "--client", "-o", "json"], {
         "windows": "scoop install kubectl", "darwin": "brew install kubectl",
         "linux": "https://kubernetes.io/docs/tasks/tools/"}),
+    # Opens the SSM port-forward to the private Kubernetes API endpoint.
+    "session-manager-plugin": ((1, 2, 0), ["--version"], {
+        "windows": "scoop bucket add extras; scoop install aws-session-manager-plugin",
+        "darwin": "brew install --cask session-manager-plugin",
+        "linux": "https://docs.aws.amazon.com/systems-manager/latest/userguide/install-plugin-debian-and-ubuntu.html"}),
 }
 
 _VERSION_RE = re.compile(r"v?(\d+)\.(\d+)\.(\d+)")

@@ -9,7 +9,7 @@ Both projects run the same 15 `@chkp` MCP servers behind one authenticated gatew
 | **Tool names** | `server___tool` | `server_tool` (separator configurable in the agent) |
 | **Inbound auth** | Cognito JWT at the gateway | Cognito JWT at the gateway and at the agent; any OIDC issuer |
 | **Policy** | AgentCore Policy (Cedar), Bedrock Guardrails | CEL rules in agentgateway (client, scope, per-tool read-only), Kubernetes NetworkPolicies |
-| **Network control** | Public runtimes, or VPC mode | Private subnets, default-deny NetworkPolicies, one NAT egress IP to allow-list |
+| **Network control** | Public runtimes, or VPC mode | Private Kubernetes API endpoint, private subnets, default-deny NetworkPolicies, one NAT egress IP to allow-list |
 | **LLM** | Bedrock (Claude, Nova) | Bedrock by default; the Anthropic API, Azure OpenAI or any OpenAI-compatible endpoint by config |
 | **Portability** | AWS only, AgentCore regions only | Any conformant Kubernetes; the chart and images run on EKS, AKS, GKE or on-prem with config changes |
 | **Delivery** | One Python CLI calling AWS APIs | Terraform + Helm + images by digest, GitOps-ready, plus the same one-command CLI |

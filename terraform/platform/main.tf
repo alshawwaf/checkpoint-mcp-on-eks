@@ -53,9 +53,12 @@ module "eks" {
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.private_subnets
 
-  endpoint_public_access       = true
+  # The API server is reachable from inside the VPC only. The CLI reaches it
+  # through an SSM port-forward on the access host (access.tf). A public
+  # endpoint is an explicit opt-in, and then only from the listed CIDRs.
   endpoint_private_access      = true
-  endpoint_public_access_cidrs = var.endpoint_public_access_cidrs
+  endpoint_public_access       = var.cluster_endpoint_public_access
+  endpoint_public_access_cidrs = var.cluster_endpoint_public_access ? var.cluster_endpoint_public_access_cidrs : null
 
   # Auto Mode: AWS runs compute (Karpenter), the ALB controller, the Pod
   # Identity agent, CoreDNS, kube-proxy and the VPC CNI. Only the `system`
@@ -66,8 +69,24 @@ module "eks" {
     node_pools = ["system"]
   }
 
-  enable_cluster_creator_admin_permissions = true
-  enable_irsa                              = false # Pod Identity instead of IRSA
+  # No implicit admin for whoever runs Terraform: the module keeps EKS's
+  # bootstrap_cluster_creator_admin_permissions off, and cluster access is
+  # granted only through the explicit access entries below. Terraform itself
+  # never calls the Kubernetes API, so it needs no Kubernetes permissions.
+  authentication_mode                      = "API"
+  enable_cluster_creator_admin_permissions = false
+  access_entries = {
+    for arn in var.cluster_admin_principal_arns : arn => {
+      principal_arn = arn
+      policy_associations = {
+        cluster-admin = {
+          policy_arn   = "arn:${data.aws_partition.current.partition}:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+          access_scope = { type = "cluster" }
+        }
+      }
+    }
+  }
+  enable_irsa = false # Pod Identity instead of IRSA
 
   # EKS envelope-encrypts Kubernetes Secrets with an AWS-owned KMS key by
   # default. A customer-managed key is a one-line opt-in (create_kms_key +

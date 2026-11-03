@@ -26,6 +26,7 @@ class Stack:
         self.cfg, self.session, self.profile = cfg, session, profile
         self.out = terraform.outputs("platform", profile, cfg.prefix)
         self._token, self._exp = "", 0.0
+        self._api_ready = False
 
     @property
     def deployed(self):
@@ -33,7 +34,28 @@ class Stack:
 
     @property
     def kube(self):
-        return Kube(self.out.get("cluster_name") or self.cfg.cluster_name, self.profile)
+        """kubectl/helm for this stack. The first use connects to the API: directly when
+        the public endpoint lets this machine in, otherwise through the SSM tunnel."""
+        name = self.out.get("cluster_name") or self.cfg.cluster_name
+        if self.deployed and not self._api_ready:
+            from . import tunnel
+
+            tunnel.connect(self.session, self.cfg.region, name, self.profile,
+                           self.out.get("api_access_instance_id", ""))
+            self._api_ready = True
+        return Kube(name, self.profile)
+
+    def alb_hostname(self):
+        """The internet-facing ALB in this stack's VPC, from the ELB API (no Kubernetes call)."""
+        vpc = self.out.get("vpc_id")
+        if not vpc:
+            return ""
+        elb = self.session.client("elbv2", region_name=self.cfg.region)
+        for page in elb.get_paginator("describe_load_balancers").paginate():
+            for lb in page["LoadBalancers"]:
+                if lb.get("VpcId") == vpc and lb.get("Scheme") == "internet-facing" and lb.get("Type") == "application":
+                    return lb["DNSName"]
+        return ""
 
     # -- TLS -------------------------------------------------------------------
     def ca_file(self):
@@ -52,7 +74,7 @@ class Stack:
 
     # -- URLs ------------------------------------------------------------------
     def base_url(self):
-        host = self.out.get("domain_name") or self.kube.ingress_hostname(self.cfg.namespace)
+        host = self.out.get("domain_name") or self.alb_hostname()
         return f"https://{host}" if host else ""
 
     # -- tokens ----------------------------------------------------------------

@@ -19,7 +19,8 @@ import sys
 import time
 
 from . import terraform, ui
-from .awsutil import BotoCoreError, ClientError, log, paginate
+from .awsutil import BotoCoreError, ClientError, caller_identity, log, paginate
+from .deploy import iam_principal_arn
 from .kube import PLATFORM_MANIFEST
 from .stack import Stack
 
@@ -130,15 +131,13 @@ def run(cfg, session, args, profile=None):
     rep.begin("Plan")
     ok = True
     if st.deployed:
-        kube = st.kube
-        from .kube_auth import write_kubeconfig
-
         reachable = True
         try:
-            write_kubeconfig(session, cfg.region, st.out["cluster_name"], profile=profile)
+            kube = st.kube   # connects: directly, or through the SSM tunnel to the private endpoint
             reachable = kube.wait_api(attempts=3, delay=5)
-        except (ClientError, BotoCoreError):
-            reachable = False
+        except (ClientError, BotoCoreError, RuntimeError, SystemExit) as e:
+            log(f"  Kubernetes API not reachable ({e}); Terraform will still remove everything")
+            kube, reachable = None, False
         rep.begin("Workloads + load balancer")
         if reachable:
             kube.uninstall(cfg.helm_release, cfg.namespace)
@@ -154,12 +153,18 @@ def run(cfg, session, args, profile=None):
             kube.kubectl("delete", "-f", PLATFORM_MANIFEST, "--ignore-not-found", "--wait=true", "--timeout=5m",
                          check=False)
         rep.begin("Platform (Terraform)")
+        # cluster_admin_principal_arns is a required variable; a stack created before it
+        # existed has no saved value. Destroy only needs it to validate, never to grant.
+        extra = None
+        if not terraform.stack_settings(cfg.prefix).get("cluster_admin_principal_arns"):
+            extra = {"cluster_admin_principal_arns": st.out.get("cluster_admin_principal_arns") or
+                     [iam_principal_arn(caller_identity(session, cfg.region)["Arn"])]}
         try:
-            terraform.destroy("platform", cfg, profile)
+            terraform.destroy("platform", cfg, profile, extra_vars=extra)
         except RuntimeError:
             log("  first destroy attempt failed -- removing VPC leftovers and retrying once")
             _cleanup_vpc_leftovers(session, cfg.region, st.out["vpc_id"])
-            terraform.destroy("platform", cfg, profile)
+            terraform.destroy("platform", cfg, profile, extra_vars=extra)
         rep.begin("Log groups")
         _delete_log_groups(session, cfg.region, st.out["cluster_name"])
     else:
