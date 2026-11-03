@@ -17,7 +17,7 @@ A **reference architecture** for running Check Point's Model Context Protocol se
   <a href="docs/img/architecture.svg" title="Open the full-size diagram">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="docs/img/architecture-dark.svg">
-      <img src="docs/img/architecture.svg" alt="Check Point MCP servers on Amazon EKS behind agentgateway, with a security-ops agent, Cognito, External Secrets and an ALB" width="100%">
+      <img src="docs/img/architecture.svg" alt="Check Point MCP servers on Amazon EKS behind agentgateway, with a security-ops agent, Cognito, External Secrets, an ALB, and a private Kubernetes API that the CLI reaches through an SSM access host" width="100%">
     </picture>
   </a>
 </p>
